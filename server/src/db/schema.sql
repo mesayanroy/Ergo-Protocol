@@ -1,0 +1,1 @@
+-- PostgreSQL schema scaffold for Ergo Protocol.

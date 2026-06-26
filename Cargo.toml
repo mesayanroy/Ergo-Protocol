@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = [
+    "contracts/core-pool",
+    "contracts/oracle-aggregator",
+    "contracts/backstop",
+    "contracts/liquidation-engine",
+    "contracts/governance",
+    "contracts/compliance",
+    "shared",
+    "tests/integration",
+]
+
+[workspace.package]
+edition = "2021"

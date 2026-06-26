@@ -1,0 +1,12 @@
+[package]
+name = "compliance"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "compliance"
+path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+soroban-sdk = "22.0.0"

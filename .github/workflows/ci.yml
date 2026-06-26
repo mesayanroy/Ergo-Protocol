@@ -1,0 +1,54 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  rust-contracts:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        crate:
+          - core-pool
+          - oracle-aggregator
+          - backstop
+          - liquidation-engine
+          - governance
+          - compliance
+          - shared
+          - integration-tests
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo Check
+        run: cargo check -p ${{ matrix.crate }}
+
+  js-scaffold:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg:
+          - server
+          - client
+          - keepers
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install and Build
+        run: |
+          cd ${{ matrix.pkg }}
+          npm install
+          npm run build

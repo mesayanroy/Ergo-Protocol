@@ -1,0 +1,1 @@
+export const healthFactorRoute = "/health-factor";
