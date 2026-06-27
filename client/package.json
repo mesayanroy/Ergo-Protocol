@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "dependencies": {
+    "@albedo-link/intent": "^0.13.0",
+    "@stellar/freighter-api": "^6.0.1",
     "next": "15.0.0",
     "react": "19.0.0",
     "react-dom": "19.0.0"
