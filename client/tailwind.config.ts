@@ -5,11 +5,11 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        background: "#000000",
+        background: "#0b0b0d",
         foreground: "#f5f5f2",
         accent: "#7c3aed",
         accentSecondary: "#d4ff3f",
-        brandDark: "#000000",
+        brandDark: "#0b0b0d",
         brandLime: "#d4ff3f",
         brandPurple: "#7c3aed",
         brandPurpleDark: "#1c1538",
@@ -18,6 +18,7 @@ const config: Config = {
       },
       fontFamily: {
         sans: ["var(--font-instrument-sans)", "system-ui", "sans-serif"],
+        serif: ["var(--font-instrument-serif)", "Georgia", "serif"],
       },
     },
   },

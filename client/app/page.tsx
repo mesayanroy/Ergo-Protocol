@@ -1,88 +1,26 @@
 "use client";
-
 import { useState, useEffect } from "react";
+import dynamic from "next/dynamic";
+import { useStellarWallet } from "../lib/stellar-wallet";
+import { StellarWalletModal } from "../components/StellarWalletModal";
+
+const GrainGradient = dynamic(
+  () => import("@paper-design/shaders-react").then((mod) => mod.GrainGradient),
+  { ssr: false }
+);
+
+const Warp = dynamic(
+  () => import("@paper-design/shaders-react").then((mod) => mod.Warp),
+  { ssr: false }
+);
 
 export default function HomePage() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
-  // Wallet Connection States
-  const [walletAddress, setWalletAddress] = useState<string | null>(null);
-  const [walletProvider, setWalletProvider] = useState<string | null>(null);
+  // Wallet Connection hooks
+  const { walletAddress, walletProvider, disconnect } = useStellarWallet();
   const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
-  const [connectionError, setConnectionError] = useState<string | null>(null);
-  const [isConnecting, setIsConnecting] = useState<boolean>(false);
-  const [selectedWalletForDetails, setSelectedWalletForDetails] = useState<string | null>("freighter");
-
-  // Reset errors and selections when connection modal opens/closes
-  useEffect(() => {
-    if (!isConnectModalOpen) {
-      setConnectionError(null);
-    }
-  }, [isConnectModalOpen]);
-
-  const connectFreighter = async () => {
-    setIsConnecting(true);
-    setConnectionError(null);
-    try {
-      const freighterApi = await import("@stellar/freighter-api");
-      const isConnected = await freighterApi.isConnected();
-      if (!isConnected) {
-        throw new Error("Freighter browser extension is not installed or available.");
-      }
-      const res = await freighterApi.requestAccess();
-      if (!res) {
-        throw new Error("Connection request rejected by user.");
-      }
-      const addressString = typeof res === "string" ? res : res.address;
-      if (!addressString) {
-        throw new Error("Could not retrieve public key from Freighter.");
-      }
-      setWalletAddress(addressString);
-      setWalletProvider("Freighter");
-      setIsConnectModalOpen(false);
-    } catch (err: any) {
-      setConnectionError(err.message || "Failed to connect to Freighter");
-    } finally {
-      setIsConnecting(false);
-    }
-  };
-
-  const connectAlbedo = async () => {
-    setIsConnecting(true);
-    setConnectionError(null);
-    try {
-      const albedo = (await import("@albedo-link/intent")).default;
-      const result = await albedo.publicKey({});
-      if (!result || !result.pubkey) {
-        throw new Error("No public key returned from Albedo.");
-      }
-      setWalletAddress(result.pubkey);
-      setWalletProvider("Albedo");
-      setIsConnectModalOpen(false);
-    } catch (err: any) {
-      setConnectionError(err.message || "Failed to connect to Albedo");
-    } finally {
-      setIsConnecting(false);
-    }
-  };
-
-  const connectDemoWallet = () => {
-    setIsConnecting(true);
-    setConnectionError(null);
-    setTimeout(() => {
-      setWalletAddress("GBDEMO7777777777777777777777777777777777777777777777ERGO");
-      setWalletProvider("Demo Wallet");
-      setIsConnectModalOpen(false);
-      setIsConnecting(false);
-    }, 800);
-  };
-
-  const disconnectWallet = () => {
-    setWalletAddress(null);
-    setWalletProvider(null);
-    setIsAccountModalOpen(false);
-  };
 
 
   return (
@@ -213,42 +151,44 @@ export default function HomePage() {
         )}
       </header>
 
-      {/* Full-width elegant horizontal stripes behind Hero */}
-      <div className="absolute inset-x-0 top-20 h-[750px] pointer-events-none overflow-hidden z-0 select-none">
-        {/* Horizontal stripes (off-white grid lines) */}
-        <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(255,255,255,0.08)_1px,transparent_1px)] bg-[size:100%_64px]" />
-        {/* Subtle vertical grid lines */}
-        <div className="absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.018)_1px,transparent_1px)] bg-[size:96px_100%]" />
-        {/* Fade gradient masks to blend cleanly */}
-        <div className="absolute inset-0 bg-gradient-to-b from-brandDark via-transparent to-brandDark" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_30%,#000000_95%)]" />
-      </div>
+      {/* Widescreen background and grid stripes layers mapped inside the section tag directly */}
 
-      {/* Hero Section - Asymmetric Split Grid */}
-      <section className="relative z-10 max-w-7xl mx-auto px-6 pt-12 pb-24 md:pt-20 md:pb-28">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-16 items-center">
-          
-          {/* Column: Hero Text (Displays Right on desktop, Top on mobile) */}
-          <div className="lg:col-span-6 flex flex-col items-start text-left z-10 lg:order-2">
-            {/* Subtle Badge */}
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-brandPurple/20 bg-brandPurpleDark/40 text-xs font-semibold uppercase tracking-wider text-brandPurple shadow-sm glow-purple mb-6">
+      {/* Hero Section - Full-bleed Horizontal visual background */}
+      <section className="relative z-10 min-h-[95vh] flex items-end justify-start pb-16 pt-32 overflow-hidden">
+        {/* Horizontal Background visual on the entire screen section */}
+        <div className="absolute inset-0 z-0 select-none pointer-events-none">
+          <img 
+            src="/hero-illustration-new.png" 
+            alt="Ergo Protocol Core Energy background" 
+            className="w-full h-full object-cover object-center opacity-95 filter brightness-[0.95] contrast-[1.02]"
+          />
+          {/* Subtle edge fades to integrate visual boundaries with header/footer colors */}
+          <div className="absolute top-0 inset-x-0 h-24 bg-gradient-to-b from-black to-transparent pointer-events-none" />
+          <div className="absolute bottom-0 inset-x-0 h-24 bg-gradient-to-t from-black to-transparent pointer-events-none" />
+        </div>
+
+        {/* Content (Soothing Bottom-Left-aligned Structure) */}
+        <div className="max-w-7xl mx-auto px-6 relative z-10 w-full">
+          <div className="max-w-2xl">
+            {/* Badge */}
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-brandPurple/20 bg-brandPurpleDark/40 text-xs font-semibold uppercase tracking-wider text-brandPurple shadow-sm glow-purple mb-6 drop-shadow-[0_2px_8px_rgba(0,0,0,0.95)]">
               <span className="w-1.5 h-1.5 rounded-full bg-brandLime animate-pulse" />
-              Soroban Smart Contracts
+               Live V-1
             </div>
 
-            {/* Title */}
-            <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight text-white leading-[1.1] mb-6">
-              Shared Liquidity. <br />
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-white via-white to-brandLime">Engineered for Stellar.</span>
+            {/* Title - Mix of Instrument Sans-Serif and Calligraphy Italics */}
+            <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl tracking-tight leading-tight mb-5 drop-shadow-[0_4px_20px_rgba(0,0,0,0.98)]">
+              <span className="font-sans font-bold text-white">Shared Liquidity.</span> <br />
+              <span className="font-serif italic font-normal text-transparent bg-clip-text bg-gradient-to-r from-white via-brandLime to-brandLime/90 tracking-wide">Engineered for Stellar.</span>
             </h1>
 
             {/* Description */}
-            <p className="max-w-xl text-base sm:text-lg md:text-xl text-brandGray leading-relaxed mb-8">
+            <p className="max-w-xl text-sm sm:text-base text-white/95 leading-relaxed mb-6 drop-shadow-[0_4px_16px_rgba(0,0,0,0.98)]">
               Ergo Protocol brings next-generation capital efficiency to Stellar. Supply, borrow, and leverage assets with a robust shared core, fallback oracle aggregators, and compliance modularity.
             </p>
 
             {/* Call to Actions */}
-            <div className="flex flex-col sm:flex-row gap-4 mb-10 w-full sm:w-auto">
+            <div className="flex flex-col sm:flex-row gap-4 mb-8 w-full sm:w-auto drop-shadow-[0_4px_12px_rgba(0,0,0,0.9)]">
               <a 
                 href="#launch" 
                 className="px-8 py-4 rounded-full text-sm font-semibold tracking-wider text-brandDark bg-brandLime shadow-[0_0_20px_rgba(212,255,63,0.25)] transition-all duration-300 hover:scale-[1.03] hover:shadow-[0_0_30px_rgba(212,255,63,0.4)] text-center"
@@ -263,43 +203,46 @@ export default function HomePage() {
               </a>
             </div>
 
-            {/* Core Stats under Hero Text */}
-            <div className="flex gap-8 border-t border-white/5 pt-8 w-full max-w-lg">
+            {/* Core Stats */}
+            <div className="flex gap-8 border-t border-white/10 pt-6 w-full max-w-lg drop-shadow-[0_4px_12px_rgba(0,0,0,0.9)]">
               <div>
-                <p className="text-xs text-brandGray/60 uppercase tracking-widest">Protocol TVL</p>
+                <p className="text-xs text-white/80 uppercase tracking-widest font-semibold">Protocol TVL</p>
                 <p className="text-xl font-bold text-white mt-1">$48.6M+</p>
               </div>
               <div>
-                <p className="text-xs text-brandGray/60 uppercase tracking-widest">Oracle Security</p>
+                <p className="text-xs text-white/80 uppercase tracking-widest font-semibold">Oracle Security</p>
                 <p className="text-xl font-bold text-white mt-1">Multi-Feed</p>
               </div>
               <div>
-                <p className="text-xs text-brandGray/60 uppercase tracking-widest">Liquidity Architecture</p>
+                <p className="text-xs text-white/80 uppercase tracking-widest font-semibold">Liquidity Architecture</p>
                 <p className="text-xl font-bold text-brandLime mt-1">Shared Core</p>
               </div>
             </div>
           </div>
-
-          {/* Column: Original Image + CSS filter, Frame-Free & Enlarged (Displays Left on desktop, Bottom on mobile) */}
-          <div className="lg:col-span-6 flex justify-center items-center w-full relative z-0 mt-8 lg:mt-0 lg:order-1">
-            {/* Ambient green glow behind the image */}
-            <div className="absolute inset-0 bg-brandLime/5 rounded-full blur-[120px] pointer-events-none" />
-            
-            <div className="relative w-full max-w-[620px] aspect-[586/676] select-none">
-              {/* The exact image with CSS filter to shift purple to neon green */}
-              <img 
-                src="/concept-isometric.png" 
-                alt="Ergo Protocol Concept Illustration" 
-                className="w-full h-full object-contain filter hue-rotate-[170deg] saturate-[2.5] brightness-[1.1] contrast-[1.05]"
-              />
-            </div>
-          </div>
-
         </div>
       </section>
 
       {/* Info Split Section & Features Grid */}
-      <section id="about" className="relative z-10 border-t border-white/5 bg-black/20 py-24 md:py-32">
+      <section id="about" className="relative z-10 border-t border-white/5 bg-black py-24 md:py-32 overflow-hidden">
+        {/* GrainGradient Shader Background moved from Hero */}
+        <div className="absolute inset-0 z-0 opacity-[0.24] mix-blend-screen overflow-hidden pointer-events-none">
+          <div className="w-full h-full min-w-full min-h-full flex items-center justify-center scale-110">
+            <GrainGradient
+              width={1280}
+              height={720}
+              colors={["#7300ff", "#eba8ff", "#00bfff", "#2b00ff"]}
+              colorBack="#000000"
+              softness={0.5}
+              intensity={0.26}
+              noise={0.65}
+              shape="corners"
+              speed={1.36}
+            />
+          </div>
+          {/* Blend mask */}
+          <div className="absolute inset-0 bg-gradient-to-b from-brandDark via-transparent to-brandDark" />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_40%,#000000_95%)]" />
+        </div>
         <div className="max-w-7xl mx-auto px-6">
           
           {/* Headline Split layout */}
@@ -334,9 +277,19 @@ export default function HomePage() {
           {/* Three Feature Cards Section - All uniform glassmorphic */}
           <div id="features" className="grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8">
             
-            {/* Card 1: Standard Glass Card */}
-            <div className="glass-panel glass-panel-hover rounded-[2rem] p-8 flex flex-col justify-between min-h-[340px]">
-              <div>
+            {/* Card 1: Standard Glass Card with hover-animated background image */}
+            <div className="glass-panel glass-panel-hover rounded-[2rem] p-8 flex flex-col justify-between min-h-[340px] relative overflow-hidden group">
+              {/* Animated Background Graphic */}
+              <div className="absolute inset-0 z-0 select-none pointer-events-none">
+                <img 
+                  src="/card-bg-purple.png" 
+                  alt="Capital growth background" 
+                  className="absolute inset-0 w-full h-full object-cover transform scale-100 group-hover:scale-108 group-hover:translate-x-1.5 group-hover:-translate-y-1.5 transition-transform duration-700 brightness-[0.4] opacity-[0.25] mix-blend-lighten"
+                />
+                <div className="absolute inset-0 bg-gradient-to-tr from-brandCardBg via-brandCardBg/80 to-transparent" />
+              </div>
+
+              <div className="relative z-10">
                 <div className="w-12 h-12 rounded-xl bg-brandLime/10 border border-brandLime/20 flex items-center justify-center mb-6">
                   <svg className="w-6 h-6 text-brandLime" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
@@ -347,14 +300,24 @@ export default function HomePage() {
                   Earn passive yields natively on Stellar as your assets deploy dynamically across low-risk market-making pools.
                 </p>
               </div>
-              <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden mt-6">
+              <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden mt-6 relative z-10">
                 <div className="w-1/3 h-full bg-brandLime" />
               </div>
             </div>
 
-            {/* Card 2: Glass Card */}
-            <div className="glass-panel glass-panel-hover rounded-[2rem] p-8 flex flex-col justify-between min-h-[340px]">
-              <div>
+            {/* Card 2: Glass Card with hover-animated background image */}
+            <div className="glass-panel glass-panel-hover rounded-[2rem] p-8 flex flex-col justify-between min-h-[340px] relative overflow-hidden group">
+              {/* Animated Background Graphic */}
+              <div className="absolute inset-0 z-0 select-none pointer-events-none">
+                <img 
+                  src="/card-bg-purple.png" 
+                  alt="Liquidity background" 
+                  className="absolute inset-0 w-full h-full object-cover transform scale-100 group-hover:scale-108 group-hover:translate-x-1.5 group-hover:-translate-y-1.5 transition-transform duration-700 brightness-[0.4] opacity-[0.25] mix-blend-lighten"
+                />
+                <div className="absolute inset-0 bg-gradient-to-tr from-brandCardBg via-brandCardBg/80 to-transparent" />
+              </div>
+
+              <div className="relative z-10">
                 <div className="w-12 h-12 rounded-xl bg-brandPurple/10 border border-brandPurple/20 flex items-center justify-center mb-6">
                   <svg className="w-6 h-6 text-brandPurple" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
@@ -365,14 +328,24 @@ export default function HomePage() {
                   Stay fully liquid with instant entry and exit options. Withdraw, transfer, or leverage your assets without lockups or hidden delays.
                 </p>
               </div>
-              <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden mt-6">
+              <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden mt-6 relative z-10">
                 <div className="w-2/3 h-full bg-brandPurple" />
               </div>
             </div>
 
-            {/* Card 3: Glass Card */}
-            <div className="glass-panel glass-panel-hover rounded-[2rem] p-8 flex flex-col justify-between min-h-[340px]">
-              <div>
+            {/* Card 3: Glass Card with hover-animated background image */}
+            <div className="glass-panel glass-panel-hover rounded-[2rem] p-8 flex flex-col justify-between min-h-[340px] relative overflow-hidden group">
+              {/* Animated Background Graphic */}
+              <div className="absolute inset-0 z-0 select-none pointer-events-none">
+                <img 
+                  src="/card-bg-purple.png" 
+                  alt="Automated flow background" 
+                  className="absolute inset-0 w-full h-full object-cover transform scale-100 group-hover:scale-108 group-hover:translate-x-1.5 group-hover:-translate-y-1.5 transition-transform duration-700 brightness-[0.35] opacity-[0.25] mix-blend-lighten"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-brandCardBg via-brandCardBg/40 to-transparent" />
+              </div>
+
+              <div className="relative z-10">
                 <div className="w-12 h-12 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center mb-6">
                   <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
@@ -383,7 +356,7 @@ export default function HomePage() {
                   No complex monitoring required. The automated algorithms handle security rebalancing and optimization parameters under the hood.
                 </p>
               </div>
-              <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden mt-6">
+              <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden mt-6 relative z-10">
                 <div className="w-full h-full bg-brandLime" />
               </div>
             </div>
@@ -440,17 +413,15 @@ export default function HomePage() {
             <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-brandDark to-transparent pointer-events-none" />
           </div>
 
-          {/* Text Content inside glassmorphic overlay for maximum readability & premium blend */}
-          <div className="max-w-4xl mx-auto px-6 relative z-10 py-8">
-            <div className="glass-panel backdrop-blur-md bg-black/60 border border-white/10 rounded-[2rem] p-8 sm:p-12 shadow-[0_20px_50px_rgba(0,0,0,0.5)] text-center">
-              <span className="text-xs font-semibold uppercase tracking-[0.25em] text-brandLime">Real-time Risk Management</span>
-              <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight text-white leading-tight mt-3">
-                Institutional-grade Oracles & Dutch Liquidations.
-              </h2>
-              <p className="text-base sm:text-lg text-brandGray mt-4 max-w-2xl mx-auto leading-relaxed">
-                Monitor active positions, check price aggregator safety status, and watch liquidation auctions occur transparently. Our multi-source aggregator queries Reflector & DEX TWAPs with staleness limits and deviation circuit breakers.
-              </p>
-            </div>
+          {/* Text Content overlaying the background image directly */}
+          <div className="max-w-4xl mx-auto px-6 relative z-10 py-16 text-center bg-[radial-gradient(circle_at_center,rgba(0,0,0,0.75)_0%,transparent_65%)]">
+            <span className="text-xs font-semibold uppercase tracking-[0.25em] text-brandLime drop-shadow-md">Real-time Risk Management</span>
+            <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight text-white leading-tight mt-3 drop-shadow-[0_4px_12px_rgba(0,0,0,0.8)]">
+              Institutional-grade Oracles & Dutch Liquidations.
+            </h2>
+            <p className="text-base sm:text-lg text-brandGray mt-4 max-w-2xl mx-auto leading-relaxed drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]">
+              Monitor active positions, check price aggregator safety status, and watch liquidation auctions occur transparently. Our multi-source aggregator queries Reflector & DEX TWAPs with staleness limits and deviation circuit breakers.
+            </p>
           </div>
         </div>
       </section>
@@ -587,7 +558,30 @@ export default function HomePage() {
       </section>
 
       {/* Developer Section Panel with glowing code mock */}
-      <section id="developers" className="relative z-10 py-24 md:py-32 border-t border-white/5 bg-brandDark">
+      <section id="developers" className="relative z-10 py-24 md:py-32 border-t border-white/5 bg-black overflow-hidden">
+        {/* Warp Shader Background */}
+        <div className="absolute inset-0 z-0 opacity-[0.16] mix-blend-screen overflow-hidden pointer-events-none">
+          <div className="w-full h-full min-w-full min-h-full flex items-center justify-center scale-110">
+            <Warp
+              width={1280}
+              height={720}
+              colors={["#101213", "#9fadaa", "#f3fee7", "#f3fee7"]}
+              proportion={0.05}
+              softness={0}
+              distortion={0.25}
+              swirl={0.8}
+              swirlIterations={10}
+              shape="checks"
+              shapeScale={0.28}
+              speed={2.5}
+              scale={1.2}
+              rotation={44}
+            />
+          </div>
+          {/* Blend mask */}
+          <div className="absolute inset-0 bg-gradient-to-b from-brandDark via-transparent to-brandDark" />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_40%,#000000_95%)]" />
+        </div>
         <div className="max-w-7xl mx-auto px-6 grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-16 items-center">
           
           <div className="lg:col-span-5">
@@ -643,10 +637,33 @@ export default function HomePage() {
       </section>
 
       {/* Final Launch Callout Panel */}
-      <section id="launch" className="relative z-10 py-24 md:py-32 bg-gradient-to-t from-brandPurpleDark/20 to-transparent">
-        <div className="max-w-5xl mx-auto px-6">
-          <div className="rounded-[3rem] border border-brandPurple/20 bg-brandCardBg/60 p-8 sm:p-16 text-center relative overflow-hidden shadow-2xl glow-purple">
-            <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-brandPurple/5 to-transparent pointer-events-none" />
+      <section id="launch" className="relative z-10 py-24 md:py-32 bg-black overflow-hidden">
+        {/* Warp Shader Background */}
+        <div className="absolute inset-0 z-0 opacity-[0.20] mix-blend-screen overflow-hidden pointer-events-none">
+          <div className="w-full h-full min-w-full min-h-full flex items-center justify-center scale-110">
+            <Warp
+              width={1280}
+              height={720}
+              colors={["#101213", "#9fadaa", "#f3fee7", "#f3fee7"]}
+              proportion={0.05}
+              softness={0}
+              distortion={0.25}
+              swirl={0.8}
+              swirlIterations={10}
+              shape="checks"
+              shapeScale={0.28}
+              speed={2.5}
+              scale={1.2}
+              rotation={44}
+            />
+          </div>
+          {/* Blend mask */}
+          <div className="absolute inset-0 bg-gradient-to-b from-brandDark via-transparent to-brandDark" />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_40%,#000000_95%)]" />
+        </div>
+
+        <div className="max-w-5xl mx-auto px-6 relative z-10">
+          <div className="p-8 sm:p-16 text-center relative overflow-hidden">
             
             <span className="text-xs font-semibold uppercase tracking-[0.25em] text-brandLime">Experience Ergo</span>
             <h2 className="text-3xl sm:text-5xl font-bold tracking-tight text-white mt-4 mb-6 leading-tight">
@@ -755,216 +772,81 @@ export default function HomePage() {
       </footer>
 
       {/* Wallet Connection Modal */}
-      {isConnectModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
-          <div className="relative w-full max-w-2xl rounded-[2rem] border border-white/10 bg-[#0d0c14] overflow-hidden shadow-2xl flex flex-col md:flex-row min-h-[420px] max-h-[90vh]">
-            {/* Close Button */}
-            <button 
-              onClick={() => {
-                setIsConnectModalOpen(false);
-                setConnectionError(null);
-              }}
-              className="absolute top-5 right-5 text-brandGray hover:text-white transition-colors z-20"
-              aria-label="Close modal"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-
-            {/* Left Column: List of wallets */}
-            <div className="w-full md:w-[40%] border-b md:border-b-0 md:border-r border-white/5 p-6 flex flex-col gap-3 justify-center bg-black/30">
-              <h3 className="text-sm font-bold text-white uppercase tracking-wider mb-2">Connect a Wallet</h3>
-              
-              {/* Freighter Wallet */}
-              <button 
-                onClick={() => {
-                  setSelectedWalletForDetails("freighter");
-                  setConnectionError(null);
-                }}
-                className={`flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${selectedWalletForDetails === "freighter" ? "border-brandLime bg-brandLime/10 text-white" : "border-white/5 hover:border-white/10 bg-white/5 text-brandGray hover:text-white"}`}
-              >
-                <div className="w-8 h-8 rounded-lg bg-[#1c1538] flex items-center justify-center flex-shrink-0 text-brandLime font-bold text-sm">
-                  FR
-                </div>
-                <div>
-                  <p className="text-sm font-bold">Freighter</p>
-                  <p className="text-[10px] opacity-60">Stellar Extension</p>
-                </div>
-              </button>
-
-              {/* Albedo Wallet */}
-              <button 
-                onClick={() => {
-                  setSelectedWalletForDetails("albedo");
-                  setConnectionError(null);
-                }}
-                className={`flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${selectedWalletForDetails === "albedo" ? "border-brandLime bg-brandLime/10 text-white" : "border-white/5 hover:border-white/10 bg-white/5 text-brandGray hover:text-white"}`}
-              >
-                <div className="w-8 h-8 rounded-lg bg-[#7c3aed]/20 flex items-center justify-center flex-shrink-0 text-brandPurple font-bold text-sm">
-                  AL
-                </div>
-                <div>
-                  <p className="text-sm font-bold">Albedo</p>
-                  <p className="text-[10px] opacity-60">Browser Link / Ext</p>
-                </div>
-              </button>
-
-              {/* Demo Wallet */}
-              <button 
-                onClick={() => {
-                  setSelectedWalletForDetails("demo");
-                  setConnectionError(null);
-                }}
-                className={`flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${selectedWalletForDetails === "demo" ? "border-brandLime bg-brandLime/10 text-white" : "border-white/5 hover:border-white/10 bg-white/5 text-brandGray hover:text-white"}`}
-              >
-                <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center flex-shrink-0 text-white font-bold text-sm">
-                  DM
-                </div>
-                <div>
-                  <p className="text-sm font-bold">Demo Wallet</p>
-                  <p className="text-[10px] opacity-60">Simulate Connection</p>
-                </div>
-              </button>
-            </div>
-
-            {/* Right Column: Actions Panel */}
-            <div className="w-full md:w-[60%] p-8 flex flex-col justify-between bg-black/10">
-              <div>
-                {selectedWalletForDetails === "freighter" && (
-                  <div className="flex flex-col gap-4">
-                    <h4 className="text-lg font-bold text-white flex items-center gap-2">
-                      <span className="w-2.5 h-2.5 rounded-full bg-brandLime" />
-                      Freighter Wallet
-                    </h4>
-                    <p className="text-sm text-brandGray leading-relaxed">
-                      Connect using the official Stellar browser extension. Ensure the extension is installed and unlocked.
-                    </p>
-                    <button 
-                      onClick={connectFreighter}
-                      disabled={isConnecting}
-                      className="mt-4 px-6 py-3 rounded-xl bg-brandLime hover:bg-brandLime/90 text-brandDark font-semibold text-sm transition-all hover:scale-[1.02] shadow-[0_0_15px_rgba(212,255,63,0.15)] disabled:opacity-50 disabled:pointer-events-none"
-                    >
-                      {isConnecting ? "Connecting..." : "Request Access Key"}
-                    </button>
-                  </div>
-                )}
-
-                {selectedWalletForDetails === "albedo" && (
-                  <div className="flex flex-col gap-4">
-                    <h4 className="text-lg font-bold text-white flex items-center gap-2">
-                      <span className="w-2.5 h-2.5 rounded-full bg-brandPurple" />
-                      Albedo Wallet
-                    </h4>
-                    <p className="text-sm text-brandGray leading-relaxed">
-                      Albedo provides a secure browser link overlay. Works on mobile and desktop without requiring extensions.
-                    </p>
-                    <button 
-                      onClick={connectAlbedo}
-                      disabled={isConnecting}
-                      className="mt-4 px-6 py-3 rounded-xl bg-brandLime hover:bg-brandLime/90 text-brandDark font-semibold text-sm transition-all hover:scale-[1.02] shadow-[0_0_15px_rgba(212,255,63,0.15)] disabled:opacity-50 disabled:pointer-events-none"
-                    >
-                      {isConnecting ? "Connecting..." : "Connect via Albedo Link"}
-                    </button>
-                  </div>
-                )}
-
-                {selectedWalletForDetails === "demo" && (
-                  <div className="flex flex-col gap-4">
-                    <h4 className="text-lg font-bold text-white flex items-center gap-2">
-                      <span className="w-2.5 h-2.5 rounded-full bg-white" />
-                      Simulate Wallet Connection
-                    </h4>
-                    <p className="text-sm text-brandGray leading-relaxed">
-                      Quickly preview all connected features, dynamic dashboard values, and personalized UI elements of the Ergo Protocol landing page.
-                    </p>
-                    <button 
-                      onClick={connectDemoWallet}
-                      disabled={isConnecting}
-                      className="mt-4 px-6 py-3 rounded-xl bg-brandLime hover:bg-brandLime/90 text-brandDark font-semibold text-sm transition-all hover:scale-[1.02] shadow-[0_0_15px_rgba(212,255,63,0.15)] disabled:opacity-50 disabled:pointer-events-none"
-                    >
-                      {isConnecting ? "Connecting..." : "Simulate Connection"}
-                    </button>
-                  </div>
-                )}
-
-                {!selectedWalletForDetails && (
-                  <div className="flex flex-col items-center justify-center text-center h-[240px] gap-3">
-                    <svg className="w-10 h-10 text-brandGray/40 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
-                    </svg>
-                    <p className="text-sm text-brandGray">Select a wallet on the left to initiate connection.</p>
-                  </div>
-                )}
-
-                {connectionError && (
-                  <div className="mt-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-xs text-red-400">
-                    {connectionError}
-                  </div>
-                )}
-              </div>
-
-              <div className="text-xs text-brandGray/50 border-t border-white/5 pt-4 mt-6">
-                By connecting, you agree to the Terms of Service & Privacy Policy.
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <StellarWalletModal 
+        isOpen={isConnectModalOpen} 
+        onClose={() => setIsConnectModalOpen(false)} 
+      />
 
       {/* Connected Account Details Modal */}
-      {isAccountModalOpen && (
+      {isAccountModalOpen && walletAddress && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
-          <div className="relative w-full max-w-md rounded-[2rem] border border-white/10 bg-[#0d0c14] p-6 shadow-2xl flex flex-col gap-6">
+          <div className="relative w-full max-w-md rounded-[2.5rem] border border-white/5 bg-[#0e0f12] p-6 shadow-2xl flex flex-col gap-6">
             {/* Close Button */}
             <button 
               onClick={() => setIsAccountModalOpen(false)}
-              className="absolute top-5 right-5 text-brandGray hover:text-white transition-colors"
+              className="absolute top-6 right-6 text-brandGray hover:text-white transition-colors z-20 w-8 h-8 rounded-full bg-white/5 flex items-center justify-center border border-white/5 hover:bg-white/10"
               aria-label="Close details"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
 
             <div>
               <h3 className="text-lg font-bold text-white flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-brandLime animate-pulse" />
-                Connected Wallet
+                Connected Account
               </h3>
               <p className="text-xs text-brandGray mt-1">Provider: <span className="text-white font-semibold">{walletProvider}</span></p>
             </div>
 
             <div className="bg-black/40 rounded-2xl border border-white/5 p-4 flex flex-col gap-3">
               <p className="text-xs text-brandGray/60 font-mono">Public Address</p>
-              <p className="text-sm text-white font-mono break-all leading-relaxed select-all bg-white/5 p-3 rounded-lg border border-white/5">
+              <p className="text-sm text-white font-mono break-all leading-relaxed select-all bg-[#14151a] p-3 rounded-lg border border-white/5">
                 {walletAddress}
               </p>
               
-              <button 
-                onClick={() => {
-                  if (walletAddress) {
-                    navigator.clipboard.writeText(walletAddress);
-                    const btn = document.getElementById("copy-btn-txt");
-                    if (btn) {
-                      btn.textContent = "Copied Address!";
-                      setTimeout(() => {
-                        if (btn) btn.textContent = "Copy Full Address";
-                      }, 2000);
+              <div className="grid grid-cols-2 gap-3 mt-2">
+                <button 
+                  onClick={() => {
+                    if (walletAddress) {
+                      navigator.clipboard.writeText(walletAddress);
+                      const btn = document.getElementById("copy-btn-txt");
+                      if (btn) {
+                        btn.textContent = "Copied Address!";
+                        setTimeout(() => {
+                          if (btn) btn.textContent = "Copy Address";
+                        }, 2000);
+                      }
                     }
-                  }
-                }}
-                className="w-full py-2.5 rounded-xl border border-white/5 bg-white/5 hover:bg-white/10 text-xs font-semibold text-white transition-all flex items-center justify-center gap-2"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
-                </svg>
-                <span id="copy-btn-txt">Copy Full Address</span>
-              </button>
+                  }}
+                  className="py-2.5 rounded-xl border border-white/5 bg-white/5 hover:bg-white/10 text-xs font-semibold text-white transition-all flex items-center justify-center gap-2"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                  </svg>
+                  <span id="copy-btn-txt">Copy Address</span>
+                </button>
+
+                <a
+                  href={`https://stellar.expert/explorer/public/account/${walletAddress}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="py-2.5 rounded-xl border border-white/5 bg-white/5 hover:bg-white/10 text-xs font-semibold text-white transition-all flex items-center justify-center gap-2 text-center"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                  Stellar Expert
+                </a>
+              </div>
             </div>
 
             <button 
-              onClick={disconnectWallet}
+              onClick={() => {
+                disconnect();
+                setIsAccountModalOpen(false);
+              }}
               className="w-full py-3.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-xs font-bold uppercase tracking-wider text-red-400 transition-all"
             >
               Disconnect Wallet

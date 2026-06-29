@@ -5,7 +5,9 @@
   "type": "module",
   "dependencies": {
     "@albedo-link/intent": "^0.13.0",
+    "@paper-design/shaders-react": "^0.0.76",
     "@stellar/freighter-api": "^6.0.1",
+    "framer-motion": "^12.42.0",
     "next": "15.0.0",
     "react": "19.0.0",
     "react-dom": "19.0.0"
