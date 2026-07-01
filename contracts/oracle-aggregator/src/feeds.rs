@@ -1,49 +1,27 @@
 use soroban_sdk::{Address, Env, Symbol};
 
 use crate::errors::Error;
-use crate::storage::{self, FeedSample};
+use crate::storage;
 
-/// Registers a feed for an asset.
+/// Registers a feed for an asset under governance authorization.
 ///
 /// Failure conditions:
-/// - Returns `Error::Unauthorized` when caller is not governance.
-pub fn register_feed(env: &Env, _governance: Address, asset: Symbol, feed: Address) -> Result<(), Error> {
-    let mut feeds = storage::get_feeds(env, asset.clone());
-    if feeds.iter().any(|sample| sample.feed == feed) {
-        return Ok(());
+/// - Returns `Error::Unauthorized` when governance address does not match admin.
+pub fn register_feed(env: &Env, governance: Address, asset: Symbol, feed: Address) -> Result<(), Error> {
+    governance.require_auth();
+    let admin = storage::get_admin(env).ok_or(Error::Unauthorized)?;
+    if governance != admin {
+        return Err(Error::Unauthorized);
     }
 
-    feeds.push_back(FeedSample {
-        feed,
-        price: 0,
-        updated_ledger: env.ledger().sequence() as u32,
-    });
-    storage::set_feeds(env, asset, &feeds);
-    Ok(())
-}
-
-/// Updates price for an existing feed.
-pub fn upsert_feed_price(env: &Env, asset: Symbol, feed: Address, price: i128) -> Result<(), Error> {
     let mut feeds = storage::get_feeds(env, asset.clone());
-    let now = env.ledger().sequence() as u32;
-
-    let mut updated = false;
-    for sample in feeds.iter_mut() {
-        if sample.feed == feed {
-            sample.price = price;
-            sample.updated_ledger = now;
-            updated = true;
+    for f in feeds.iter() {
+        if f == feed {
+            return Ok(());
         }
     }
 
-    if !updated {
-        feeds.push_back(FeedSample {
-            feed,
-            price,
-            updated_ledger: now,
-        });
-    }
-
+    feeds.push_back(feed);
     storage::set_feeds(env, asset, &feeds);
     Ok(())
 }

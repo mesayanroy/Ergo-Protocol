@@ -4,15 +4,17 @@ use crate::errors::Error;
 use crate::storage::{self, MarketConfig};
 
 /// Creates a new market configuration.
-///
-/// Parameters:
-/// - `env`: contract environment.
-/// - `admin`: governance/admin caller expected to be authorized.
-/// - `market_id`: unique market symbol.
-///
-/// Failure conditions:
-/// - Returns `Error::Unauthorized` when caller is not current admin.
-pub fn create_market(env: &Env, admin: Address, market_id: Symbol) -> Result<(), Error> {
+pub fn create_market(
+    env: &Env,
+    admin: Address,
+    market_id: Symbol,
+    pool_type: u32,
+    asset: Address,
+    collateral_factor: u32,
+    liquidation_threshold: u32,
+    emode_category: u32,
+    debt_ceiling: i128,
+) -> Result<(), Error> {
     require_admin(env, &admin)?;
     if storage::get_market_config(env, market_id.clone()).is_some() {
         return Err(Error::MarketAlreadyExists);
@@ -20,13 +22,25 @@ pub fn create_market(env: &Env, admin: Address, market_id: Symbol) -> Result<(),
 
     storage::set_market_config(
         env,
-        market_id,
+        market_id.clone(),
         &MarketConfig {
             active: true,
-            permissioned: false,
-            debt_ceiling: i128::MAX,
+            permissioned: (pool_type == 2),
+            debt_ceiling,
+            pool_type,
+            asset,
+            collateral_factor,
+            liquidation_threshold,
+            emode_category,
+            total_supplied: 0,
+            total_borrowed: 0,
         },
     );
+
+    let mut markets = storage::get_markets(env);
+    markets.push_back(market_id);
+    storage::set_markets(env, &markets);
+
     Ok(())
 }
 
@@ -49,6 +63,7 @@ pub fn resume_market(env: &Env, admin: Address, market_id: Symbol) -> Result<(),
 }
 
 fn require_admin(env: &Env, admin: &Address) -> Result<(), Error> {
+    admin.require_auth();
     let stored = storage::get_admin(env).ok_or(Error::Unauthorized)?;
     if &stored != admin {
         return Err(Error::Unauthorized);

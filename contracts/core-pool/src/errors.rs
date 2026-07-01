@@ -13,5 +13,7 @@ pub enum Error {
     MarketAlreadyExists = 7,
     InsufficientLiquidity = 8,
     InsufficientCollateral = 9,
+    DebtCeilingExceeded = 10,
+    OracleCircuitBreakerActive = 11,
     Unsupported = 99,
 }

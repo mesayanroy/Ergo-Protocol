@@ -229,6 +229,23 @@ export default function ErgoDashboard() {
     },
   ]);
 
+  // Governance wizard and timelock queue states
+  const [isCreatePropModalOpen, setIsCreatePropModalOpen] = useState(false);
+  const [newPropTitle, setNewPropTitle] = useState("");
+  const [newPropTarget, setNewPropTarget] = useState("");
+  const [newPropAction, setNewPropAction] = useState("");
+  const [newPropDesc, setNewPropDesc] = useState("");
+  const [timelockQueue, setTimelockQueue] = useState([
+    {
+      id: "ERP-09",
+      title: "Upgrade Compliance Module Allowlist Gatekeeper",
+      targetContract: "CAC...GK88",
+      actionName: "UPGRADE",
+      eta: "14 hours",
+      status: "Queued"
+    }
+  ]);
+
   // Governance proposals simulation
   const [proposals, setProposals] = useState([
     {
@@ -280,6 +297,14 @@ export default function ErgoDashboard() {
     { id: "tx-3", type: "SUPPLY", asset: "USDC", amount: 1200, hash: "9e2a...3a1c", date: "2026-06-30", time: "18:42" },
   ]);
 
+  // E-mode & Credit Delegation states
+  const [emodeEnabled, setEmodeEnabled] = useState(false);
+  const [delegationAddress, setDelegationAddress] = useState("");
+  const [delegationLimit, setDelegationLimit] = useState("500");
+  const [activeDelegations, setActiveDelegations] = useState<any[]>([
+    { address: "GBXV...DELEGATE", limit: 500, status: "Active" }
+  ]);
+
   // Risk control health simulator
   const [simulatedCollateralOffset, setSimulatedCollateralOffset] = useState<number>(0);
 
@@ -301,7 +326,8 @@ export default function ErgoDashboard() {
       const price = prices[pool.id] || 1;
       totalSuppliedUSD += pool.supplied * price;
       totalBorrowedUSD += pool.borrowed * price;
-      collateralLimitUSD += pool.supplied * price * (pool.collateralFactor / 100);
+      const cf = (emodeEnabled && (pool.id === "usdc" || pool.id === "eurc")) ? 90 : pool.collateralFactor;
+      collateralLimitUSD += pool.supplied * price * (cf / 100);
     });
 
     // Apply simulation slider offsets for risk section
@@ -633,6 +659,84 @@ export default function ErgoDashboard() {
                     </div>
                   </div>
 
+                  {/* E-Mode & Credit Delegation Row */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* E-Mode Controller */}
+                    <div className="p-6 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col justify-between gap-4">
+                      <div>
+                        <div className="flex justify-between items-center">
+                          <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                            <span>Efficiency Mode (E-Mode)</span>
+                            <span className="text-[9px] bg-brandLime/15 text-brandLime px-2 py-0.5 rounded font-bold">Category 1 Active</span>
+                          </h4>
+                          <button
+                            onClick={() => setEmodeEnabled(!emodeEnabled)}
+                            className={`w-10 h-6 rounded-full transition-all relative ${emodeEnabled ? "bg-brandLime" : "bg-white/10"}`}
+                          >
+                            <div className={`absolute top-1 size-4 rounded-full bg-black transition-all ${emodeEnabled ? "translate-x-5" : "translate-x-1"}`} />
+                          </button>
+                        </div>
+                        <p className="text-[10px] text-brandGray mt-1 leading-relaxed">
+                          Enabling E-Mode boosts your LTV threshold to 90% when supplying and borrowing highly correlated stable assets (USDC, EURC).
+                        </p>
+                      </div>
+                      <div className="flex justify-between text-xs border-t border-white/5 pt-3">
+                        <span className="text-brandGray">Current Collateral Factor:</span>
+                        <span className="font-bold font-mono text-brandLime">{emodeEnabled ? "90%" : "75%"} (Max LTV Boost)</span>
+                      </div>
+                    </div>
+
+                    {/* Credit Delegation Panel */}
+                    <div className="p-6 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col justify-between gap-4">
+                      <div>
+                        <h4 className="text-sm font-bold text-white">Credit Delegation Panel</h4>
+                        <p className="text-[10px] text-brandGray mt-1 leading-relaxed">
+                          Delegate your unused borrow limit to a designated Stellar address, allowing them to draw credit backed by your collateral.
+                        </p>
+                      </div>
+
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          placeholder="Stellar address (G...)"
+                          value={delegationAddress}
+                          onChange={(e) => setDelegationAddress(e.target.value)}
+                          className="flex-1 bg-[#121316] border border-white/5 focus:border-[#7c3aed]/40 rounded-xl px-3 py-2 text-xs text-white placeholder-brandGray/40 outline-none"
+                        />
+                        <input
+                          type="number"
+                          placeholder="Limit ($)"
+                          value={delegationLimit}
+                          onChange={(e) => setDelegationLimit(e.target.value)}
+                          className="w-20 bg-[#121316] border border-white/5 focus:border-[#7c3aed]/40 rounded-xl px-3 py-2 text-xs text-white placeholder-brandGray/40 outline-none font-mono"
+                        />
+                        <button
+                          onClick={() => {
+                            if (!delegationAddress) return alert("Please specify a delegate address.");
+                            setActiveDelegations(prev => [
+                              ...prev,
+                              { address: delegationAddress, limit: Number(delegationLimit), status: "Active" }
+                            ]);
+                            setDelegationAddress("");
+                            alert("Credit delegated successfully!");
+                          }}
+                          className="px-4 py-2 bg-brandLime hover:bg-brandLime/90 text-brandDark font-bold text-xs rounded-xl transition-all"
+                        >
+                          Delegate
+                        </button>
+                      </div>
+
+                      <div className="flex flex-col gap-2 max-h-16 overflow-y-auto">
+                        {activeDelegations.map((d, i) => (
+                          <div key={i} className="flex justify-between items-center text-[10px] font-mono">
+                            <span className="text-brandGray truncate max-w-[180px]">{d.address}</span>
+                            <span className="text-white">${d.limit} USDC delegated</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Main Charts & Allocation */}
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     {/* Area Chart */}
@@ -845,59 +949,92 @@ export default function ErgoDashboard() {
                   </div>
 
                   <div className="grid grid-cols-1 gap-4">
-                    {assetPools.map(pool => (
-                      <div key={pool.id} className="p-6 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 hover:scale-[1.01] transition-transform duration-300">
-                        <div className="flex items-center gap-3.5">
-                          <span className="text-3xl">{pool.logo}</span>
-                          <div>
-                            <h4 className="text-base font-bold text-white font-mono">{pool.symbol}</h4>
-                            <p className="text-[10px] text-brandGray font-sans">{pool.name}</p>
-                          </div>
-                        </div>
+                    {assetPools.map(pool => {
+                      const poolType = pool.id === "usdc" ? "Shared Core" : pool.id === "eurc" ? "Permissioned" : "Satellite";
+                      const emodeLabel = pool.id === "usdc" || pool.id === "eurc" ? "Category 1 (Stable)" : "None";
+                      const debtCeiling = pool.id === "usdc" ? 10000000 : pool.id === "eurc" ? 1000000 : 5000000;
+                      const ceilingPercent = Math.min((pool.totalBorrowed / debtCeiling) * 100, 100);
 
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 w-full md:w-auto">
-                          <div>
-                            <span className="text-[10px] text-brandGray uppercase tracking-wider block">Total Supply</span>
-                            <span className="text-sm font-bold text-white font-mono">${(pool.tvl * prices[pool.id]).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-                          </div>
-                          <div>
-                            <span className="text-[10px] text-brandGray uppercase tracking-wider block">Total Borrow</span>
-                            <span className="text-sm font-bold text-white font-mono">${(pool.totalBorrowed * prices[pool.id]).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-                          </div>
-                          <div>
-                            <span className="text-[10px] text-brandGray uppercase tracking-wider block">Supply APY</span>
-                            <span className="text-sm font-bold text-brandLime font-mono">+{pool.supplyApy}%</span>
-                          </div>
-                          <div>
-                            <span className="text-[10px] text-brandGray uppercase tracking-wider block">Borrow APY</span>
-                            <span className="text-sm font-bold text-brandPurple font-mono">+{pool.borrowApy}%</span>
-                          </div>
-                        </div>
+                      return (
+                        <div key={pool.id} className="p-6 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col gap-5 hover:scale-[1.01] transition-transform duration-300">
+                          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                            <div className="flex items-center gap-3.5">
+                              <span className="text-3xl">{pool.logo}</span>
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <h4 className="text-base font-bold text-white font-mono">{pool.symbol}</h4>
+                                  <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
+                                    poolType === "Shared Core" ? "bg-[#d4ff3f]/10 text-[#d4ff3f] border border-[#d4ff3f]/20" :
+                                    poolType === "Permissioned" ? "bg-amber-500/10 text-amber-500 border border-amber-500/20" :
+                                    "bg-[#7c3aed]/10 text-[#7c3aed] border border-[#7c3aed]/20"
+                                  }`}>
+                                    {poolType}
+                                  </span>
+                                  {emodeLabel !== "None" && (
+                                    <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                                      E-Mode: {emodeLabel}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-[10px] text-brandGray font-sans">{pool.name}</p>
+                              </div>
+                            </div>
 
-                        <div className="flex gap-2 shrink-0 w-full md:w-auto">
-                          <button
-                            onClick={() => {
-                              setSelectedAssetId(pool.id);
-                              setTxType("supply");
-                              setIsTxModalOpen(true);
-                            }}
-                            className="flex-1 md:flex-initial px-6 py-2.5 rounded-xl bg-brandLime text-brandDark font-bold text-xs tracking-wider shadow-[0_0_15px_rgba(212,255,63,0.15)] hover:scale-[1.02] transition-transform"
-                          >
-                            Supply
-                          </button>
-                          <button
-                            onClick={() => {
-                              setSelectedAssetId(pool.id);
-                              setTxType("borrow");
-                              setIsTxModalOpen(true);
-                            }}
-                            className="flex-1 md:flex-initial px-6 py-2.5 rounded-xl border border-white/10 text-white font-bold text-xs tracking-wider hover:bg-white/5 transition-colors"
-                          >
-                            Borrow
-                          </button>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-6 w-full md:w-auto">
+                              <div>
+                                <span className="text-[10px] text-brandGray uppercase tracking-wider block">Total Supply</span>
+                                <span className="text-sm font-bold text-white font-mono">${(pool.tvl * prices[pool.id]).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                              </div>
+                              <div>
+                                <span className="text-[10px] text-brandGray uppercase tracking-wider block">Total Borrow</span>
+                                <span className="text-sm font-bold text-white font-mono">${(pool.totalBorrowed * prices[pool.id]).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                              </div>
+                              <div>
+                                <span className="text-[10px] text-brandGray uppercase tracking-wider block">Supply APY</span>
+                                <span className="text-sm font-bold text-brandLime font-mono">+{pool.supplyApy}%</span>
+                              </div>
+                              <div>
+                                <span className="text-[10px] text-brandGray uppercase tracking-wider block">Borrow APY</span>
+                                <span className="text-sm font-bold text-brandPurple font-mono">+{pool.borrowApy}%</span>
+                              </div>
+                            </div>
+
+                            <div className="flex gap-2 shrink-0 w-full md:w-auto">
+                              <button
+                                onClick={() => {
+                                  setSelectedAssetId(pool.id);
+                                  setTxType("supply");
+                                  setIsTxModalOpen(true);
+                                }}
+                                className="flex-1 md:flex-initial px-6 py-2.5 rounded-xl bg-brandLime text-brandDark font-bold text-xs tracking-wider shadow-[0_0_15px_rgba(212,255,63,0.15)] hover:scale-[1.02] transition-transform"
+                              >
+                                Supply
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setSelectedAssetId(pool.id);
+                                  setTxType("borrow");
+                                  setIsTxModalOpen(true);
+                                }}
+                                className="flex-1 md:flex-initial px-6 py-2.5 rounded-xl border border-white/10 text-white font-bold text-xs tracking-wider hover:bg-white/5 transition-colors"
+                              >
+                                Borrow
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="border-t border-white/5 pt-3.5 flex flex-col gap-1.5">
+                            <div className="flex justify-between text-[10px] text-brandGray">
+                              <span>Debt Ceiling Utilisation: <span className="font-mono text-white">${pool.totalBorrowed.toLocaleString()} / ${debtCeiling.toLocaleString()}</span></span>
+                              <span className="font-mono text-brandLime font-bold">{ceilingPercent.toFixed(1)}%</span>
+                            </div>
+                            <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+                              <div className="h-full bg-brandLime" style={{ width: `${ceilingPercent}%` }} />
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -1014,30 +1151,121 @@ export default function ErgoDashboard() {
                       </div>
                     </div>
 
-                    {/* LTV Metric Cards */}
-                    <div className="p-6 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col justify-between gap-6">
+                    {/* Backstop Insurance Metrics */}
+                    <div className="p-6 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col justify-between gap-4">
                       <div>
-                        <h4 className="text-sm font-bold text-white">Oracle Deviation circuit breaker</h4>
-                        <p className="text-[10px] text-brandGray mt-0.5">Circuit breakers trigger automatic price freezes when deviation is &gt; 5.0%</p>
+                        <h4 className="text-sm font-bold text-white">Backstop Insurance Reserves</h4>
+                        <p className="text-[10px] text-brandGray mt-0.5">Insurance capital locked to recover protocol shortfalls.</p>
                       </div>
 
-                      <div className="flex flex-col gap-4">
-                        {[
-                          { label: "Reflector Oracle Price", value: "$0.112 XLM", status: "Active" },
-                          { label: "DEX Spot TWAP Oracle", value: "$0.111 XLM", status: "Active" },
-                          { label: "Aggregate price deviation", value: "0.89%", status: "Safe" },
-                        ].map((m, idx) => (
-                          <div key={idx} className="flex justify-between items-center text-xs">
-                            <span className="text-brandGray">{m.label}</span>
-                            <span className={`font-semibold font-mono ${idx === 2 ? "text-brandLime bg-brandLime/5 px-2 py-0.5 rounded" : "text-white"}`}>{m.value}</span>
-                          </div>
-                        ))}
+                      <div className="flex flex-col gap-3">
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="text-brandGray">USDC Pool Capital</span>
+                          <span className="font-bold text-white font-mono">$524,000 USDC</span>
+                        </div>
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="text-brandGray">Queued Withdrawals</span>
+                          <span className="font-bold text-white font-mono">$12,450 USDC</span>
+                        </div>
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="text-brandGray">Cooldown Duration</span>
+                          <span className="font-bold text-brandLime font-mono">10 Ledgers (Testnet)</span>
+                        </div>
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="text-brandGray">Active Drawdown Gate</span>
+                          <span className="text-[10px] bg-brandLime/10 text-brandLime px-2 py-0.5 rounded font-bold border border-brandLime/15">CLOSED</span>
+                        </div>
                       </div>
 
                       <div className="h-px bg-white/5 w-full" />
-                      <span className="text-[10px] text-brandGray/40 font-mono leading-relaxed">
-                        Dutch auction liquidations automatically clear unsafe loans if Health Factor falls to 1.00.
-                      </span>
+                      <button
+                        onClick={() => {
+                          setSelectedAssetId("usdc");
+                          setTxType("supply");
+                          setIsTxModalOpen(true);
+                        }}
+                        className="w-full py-2.5 rounded-xl border border-white/10 text-xs font-bold text-white hover:bg-white/5 transition-all text-center"
+                      >
+                        Deposit Backstop Capital
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Liquidation Auction Monitor & Oracle Feeds Panels */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    {/* Auction Monitor */}
+                    <div className="lg:col-span-2 p-6 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col gap-4">
+                      <div>
+                        <h4 className="text-sm font-bold text-white">Liquidation Auction Monitor</h4>
+                        <p className="text-[10px] text-brandGray mt-0.5">Dutch auction progress curves for unhealthy loans.</p>
+                      </div>
+
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs text-left">
+                          <thead>
+                            <tr className="text-brandGray border-b border-white/5 pb-2">
+                              <th className="pb-2">Borrower</th>
+                              <th className="pb-2">Debt to Clear</th>
+                              <th className="pb-2">Collateral Reward</th>
+                              <th className="pb-2">Dutch Discount</th>
+                              <th className="pb-2 text-right">Action</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr className="border-b border-white/5 hover:bg-white/5 transition-colors">
+                              <td className="py-3 font-mono text-white">GD3F...9K12</td>
+                              <td className="py-3 font-mono text-red-400">1,500 USDC</td>
+                              <td className="py-3 font-mono text-brandLime">12,500 XLM</td>
+                              <td className="py-3">
+                                <div className="flex items-center gap-2">
+                                  <div className="h-1.5 w-16 bg-white/5 rounded-full overflow-hidden">
+                                    <div className="h-full bg-brandLime" style={{ width: "65%" }} />
+                                  </div>
+                                  <span className="font-mono text-[10px] text-brandLime font-bold">6.5%</span>
+                                </div>
+                              </td>
+                              <td className="py-3 text-right">
+                                <button
+                                  onClick={() => {
+                                    alert("Arbitrage flash-loan liquidation request submitted to keeper node!");
+                                  }}
+                                  className="px-2.5 py-1 rounded bg-[#d4ff3f]/10 text-brandLime border border-[#d4ff3f]/10 font-bold hover:bg-[#d4ff3f]/15"
+                                >
+                                  Execute Fill
+                                </button>
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* Oracle Deviation Panel */}
+                    <div className="p-6 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col gap-4">
+                      <div>
+                        <h4 className="text-sm font-bold text-white">Oracle Deviation Feeds</h4>
+                        <p className="text-[10px] text-brandGray mt-0.5">Aggregated price feed variance limits.</p>
+                      </div>
+
+                      <div className="flex flex-col gap-3">
+                        {[
+                          { asset: "USDC / USD", reflector: "$1.000", twap: "$1.001", dev: "0.10%", status: "Safe" },
+                          { asset: "XLM / USD", reflector: "$0.112", twap: "$0.111", dev: "0.89%", status: "Safe" },
+                          { asset: "EURC / USD", reflector: "$1.080", twap: "$1.077", dev: "0.27%", status: "Safe" }
+                        ].map((o, idx) => (
+                          <div key={idx} className="flex flex-col gap-1.5 p-2.5 rounded-xl bg-white/5 border border-white/5">
+                            <div className="flex justify-between items-center text-xs">
+                              <span className="font-bold text-white">{o.asset}</span>
+                              <span className="text-[9px] bg-brandLime/15 text-brandLime px-1.5 py-0.5 rounded font-bold">{o.status}</span>
+                            </div>
+                            <div className="flex justify-between text-[10px] text-brandGray">
+                              <span>Reflector: <span className="font-mono text-white">{o.reflector}</span></span>
+                              <span>TWAP: <span className="font-mono text-white">{o.twap}</span></span>
+                              <span>Var: <span className="font-mono text-brandLime">{o.dev}</span></span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1130,64 +1358,123 @@ export default function ErgoDashboard() {
                     </div>
                   </div>
 
-                  {/* Active proposals list */}
-                  <div className="flex flex-col gap-4">
-                    {proposals.map(prop => (
-                      <div key={prop.id} className="p-6 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col gap-4 hover:scale-[1.005] transition-transform duration-300">
-                        <div className="flex items-center justify-between border-b border-white/5 pb-3">
-                          <div className="flex items-center gap-3">
-                            <span className="text-[10px] font-bold font-mono bg-brandPurple/20 text-[#7c3aed] px-2 py-0.5 rounded">{prop.id}</span>
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${prop.status === "Active" ? "bg-brandLime/10 text-brandLime" : "bg-white/5 text-brandGray"}`}>{prop.status}</span>
-                          </div>
-                          <span className="text-[10px] font-mono text-brandGray/40">Ends in: {prop.endsIn}</span>
-                        </div>
+                  {/* Header and Create Button */}
+                  <div className="flex justify-between items-center bg-[#121316]/40 p-6 rounded-2xl border border-white/5">
+                    <div>
+                      <h3 className="text-base font-bold text-white">Stellar Governance Dashboard</h3>
+                      <p className="text-xs text-brandGray mt-1">Vote on risk parameters, Oracle feeds, and smart contract execution limits.</p>
+                    </div>
+                    <button
+                      onClick={() => setIsCreatePropModalOpen(true)}
+                      className="px-5 py-2.5 rounded-xl bg-brandLime text-brandDark font-bold text-xs tracking-wider shadow-[0_0_15px_rgba(212,255,63,0.15)] hover:scale-[1.02] transition-transform flex items-center gap-1.5"
+                    >
+                      <Plus className="size-4" /> Create Proposal
+                    </button>
+                  </div>
 
-                        <div>
-                          <h4 className="text-sm font-bold text-white">{prop.title}</h4>
-                          <p className="text-xs text-brandGray mt-1.5 leading-relaxed">{prop.description}</p>
-                          <span className="text-[10px] text-brandGray/40 mt-2 block">Proposer: {prop.proposer}</span>
-                        </div>
-
-                        {/* Voting visual bar graphs */}
-                        <div className="flex flex-col gap-2 mt-2">
-                          <div className="flex justify-between text-[10px] font-mono font-bold">
-                            <span className="text-brandLime">For: {prop.votesFor.toLocaleString()} ERGO ({(prop.votesFor / (prop.votesFor + prop.votesAgainst) * 100).toFixed(0)}%)</span>
-                            <span className="text-red-400">Against: {prop.votesAgainst.toLocaleString()} ERGO ({(prop.votesAgainst / (prop.votesFor + prop.votesAgainst) * 100).toFixed(0)}%)</span>
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    {/* Active proposals list */}
+                    <div className="lg:col-span-2 flex flex-col gap-4">
+                      <h4 className="text-xs font-bold text-brandGray uppercase tracking-wider">Active Governance Proposals</h4>
+                      {proposals.map(prop => (
+                        <div key={prop.id} className="p-6 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col gap-4 hover:scale-[1.005] transition-transform duration-300">
+                          <div className="flex items-center justify-between border-b border-white/5 pb-3">
+                            <div className="flex items-center gap-3">
+                              <span className="text-[10px] font-bold font-mono bg-brandPurple/20 text-[#7c3aed] px-2 py-0.5 rounded">{prop.id}</span>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${prop.status === "Active" ? "bg-brandLime/10 text-brandLime" : "bg-white/5 text-brandGray"}`}>{prop.status}</span>
+                            </div>
+                            <span className="text-[10px] font-mono text-brandGray/40">Ends in: {prop.endsIn}</span>
                           </div>
-                          <div className="h-2 w-full rounded-full bg-white/5 overflow-hidden flex">
-                            <div className="h-full bg-brandLime" style={{ width: `${(prop.votesFor / (prop.votesFor + prop.votesAgainst) * 100)}%` }} />
-                            <div className="h-full bg-red-500" style={{ width: `${(prop.votesAgainst / (prop.votesFor + prop.votesAgainst) * 100)}%` }} />
-                          </div>
-                        </div>
 
-                        {/* Action buttons */}
-                        {prop.status === "Active" && (
-                          <div className="flex gap-3 mt-2 justify-end">
-                            {prop.hasVoted ? (
-                              <span className="text-xs bg-white/5 text-brandGray/60 px-4 py-2 border border-white/5 rounded-xl font-bold flex items-center gap-1.5">
-                                <Check className="size-3 text-brandLime" />
-                                Voted Successfully
-                              </span>
-                            ) : (
-                              <>
-                                <button
-                                  onClick={() => handleVote(prop.id, true)}
-                                  className="px-4 py-2 rounded-xl bg-brandLime/10 hover:bg-brandLime/15 text-brandLime border border-[#d4ff3f]/10 font-bold text-xs"
-                                >
-                                  Vote For
-                                </button>
-                                <button
-                                  onClick={() => handleVote(prop.id, false)}
-                                  className="px-4 py-2 rounded-xl bg-red-500/10 hover:bg-red-500/15 text-red-400 border border-red-500/10 font-bold text-xs"
-                                >
-                                  Vote Against
-                                </button>
-                              </>
+                          <div>
+                            <h4 className="text-sm font-bold text-white">{prop.title}</h4>
+                            <p className="text-xs text-[#9fadaa] mt-1.5 leading-relaxed">{prop.description}</p>
+                            <span className="text-[10px] text-brandGray/40 mt-2 block">Proposer: {prop.proposer}</span>
+                          </div>
+
+                          {/* Voting visual bar graphs */}
+                          <div className="flex flex-col gap-2 mt-2">
+                            <div className="flex justify-between text-[10px] font-mono font-bold">
+                              <span className="text-brandLime">For: {prop.votesFor.toLocaleString()} ERGO ({(prop.votesFor / (prop.votesFor + prop.votesAgainst) * 100).toFixed(0)}%)</span>
+                              <span className="text-red-400">Against: {prop.votesAgainst.toLocaleString()} ERGO ({(prop.votesAgainst / (prop.votesFor + prop.votesAgainst) * 100).toFixed(0)}%)</span>
+                            </div>
+                            <div className="h-2 w-full rounded-full bg-white/5 overflow-hidden flex">
+                              <div className="h-full bg-brandLime" style={{ width: `${(prop.votesFor / (prop.votesFor + prop.votesAgainst) * 100)}%` }} />
+                              <div className="h-full bg-red-500" style={{ width: `${(prop.votesAgainst / (prop.votesFor + prop.votesAgainst) * 100)}%` }} />
+                            </div>
+                          </div>
+
+                          {/* Action buttons */}
+                          {prop.status === "Active" && (
+                            <div className="flex gap-3 mt-2 justify-end">
+                              {prop.hasVoted ? (
+                                <span className="text-xs bg-white/5 text-brandGray/60 px-4 py-2 border border-white/5 rounded-xl font-bold flex items-center gap-1.5">
+                                  <Check className="size-3 text-brandLime" />
+                                  Voted Successfully
+                                </span>
+                              ) : (
+                                <>
+                                  <button
+                                    onClick={() => handleVote(prop.id, true)}
+                                    className="px-4 py-2 rounded-xl bg-brandLime/10 hover:bg-brandLime/15 text-brandLime border border-[#d4ff3f]/10 font-bold text-xs"
+                                  >
+                                    Vote For
+                                  </button>
+                                  <button
+                                    onClick={() => handleVote(prop.id, false)}
+                                    className="px-4 py-2 rounded-xl bg-red-500/10 hover:bg-red-500/15 text-red-400 border border-red-500/10 font-bold text-xs"
+                                  >
+                                    Vote Against
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Timelock Queue Column */}
+                    <div className="flex flex-col gap-4">
+                      <h4 className="text-xs font-bold text-brandGray uppercase tracking-wider">Timelock Execution Queue</h4>
+                      <div className="flex flex-col gap-4">
+                        {timelockQueue.map((item, idx) => (
+                          <div key={idx} className="p-5 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col gap-3">
+                            <div className="flex justify-between items-center border-b border-white/5 pb-2">
+                              <span className="text-[10px] font-bold font-mono bg-brandPurple/20 text-[#7c3aed] px-2 py-0.5 rounded">{item.id}</span>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                                item.status === "Queued" ? "bg-amber-500/10 text-amber-500 border border-amber-500/15" : "bg-brandLime/10 text-brandLime border border-brandLime/15"
+                              }`}>{item.status}</span>
+                            </div>
+
+                            <div>
+                              <h5 className="text-xs font-bold text-white">{item.title}</h5>
+                              <div className="flex flex-col gap-1 mt-2 text-[10px] font-mono text-brandGray">
+                                <span>Target: <span className="text-white">{item.targetContract}</span></span>
+                                <span>Action: <span className="text-brandLime">{item.actionName}</span></span>
+                                {item.status === "Queued" && (
+                                  <span className="flex items-center gap-1 text-amber-400 mt-1.5 font-sans">
+                                    <Clock className="size-3" /> Execution ETA: {item.eta}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            {item.status === "Queued" && (
+                              <button
+                                onClick={() => {
+                                  setTimelockQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: "Executed" } : q));
+                                  alert(`Successfully triggered Timelock execution for proposal ${item.id}! Smart contract parameters have been updated.`);
+                                }}
+                                className="w-full mt-2 py-2 rounded-xl bg-brandLime text-brandDark font-bold text-xs hover:bg-brandLime/90 transition-all text-center"
+                              >
+                                Execute Upgrade
+                              </button>
                             )}
                           </div>
-                        )}
+                        ))}
                       </div>
-                    ))}
+                    </div>
                   </div>
                 </div>
               )}
@@ -1332,6 +1619,123 @@ export default function ErgoDashboard() {
                   className="w-full py-4 rounded-2xl bg-brandLime hover:bg-brandLime/90 text-brandDark font-bold text-sm tracking-wide transition-all shadow-[0_0_20px_rgba(212,255,63,0.15)] mt-2"
                 >
                   Verify and Sign Transaction
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Proposal Creation Wizard Modal */}
+      <AnimatePresence>
+        {isCreatePropModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsCreatePropModalOpen(false)}
+              className="absolute inset-0 bg-black/75 backdrop-blur-md"
+            />
+
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              transition={{ type: "spring", duration: 0.5 }}
+              className="relative w-full max-w-md rounded-[2.5rem] border border-white/5 bg-[#0e0f12]/95 overflow-hidden shadow-2xl p-6 z-10"
+            >
+              {/* Close Button */}
+              <button
+                onClick={() => setIsCreatePropModalOpen(false)}
+                className="absolute top-6 right-6 text-brandGray hover:text-white transition-colors z-20 w-8 h-8 rounded-full bg-white/5 flex items-center justify-center border border-white/5 hover:bg-white/10"
+                aria-label="Close modal"
+              >
+                <X className="size-4" />
+              </button>
+
+              <div className="flex flex-col gap-4">
+                <div>
+                  <span className="text-[10px] uppercase tracking-widest text-[#7c3aed] font-semibold">Governance Wizard</span>
+                  <h4 className="text-xl font-bold text-white mt-1">Create New Proposal</h4>
+                </div>
+
+                <div className="flex flex-col gap-3">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-bold text-brandGray uppercase tracking-wider">Proposal Title</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Increase USDC Collateral Factor to 85%"
+                      value={newPropTitle}
+                      onChange={(e) => setNewPropTitle(e.target.value)}
+                      className="w-full bg-[#14151a] border border-white/5 focus:border-[#7c3aed]/40 rounded-xl px-4 py-2.5 text-xs text-white placeholder-brandGray/40 outline-none"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-bold text-brandGray uppercase tracking-wider">Target Contract Address</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. CC_POOL_CONTRACT_ADDRESS"
+                      value={newPropTarget}
+                      onChange={(e) => setNewPropTarget(e.target.value)}
+                      className="w-full bg-[#14151a] border border-white/5 focus:border-[#7c3aed]/40 rounded-xl px-4 py-2.5 text-xs text-white placeholder-brandGray/40 outline-none font-mono"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-bold text-brandGray uppercase tracking-wider">Target Action / Method</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. set_collateral_factor"
+                      value={newPropAction}
+                      onChange={(e) => setNewPropAction(e.target.value)}
+                      className="w-full bg-[#14151a] border border-white/5 focus:border-[#7c3aed]/40 rounded-xl px-4 py-2.5 text-xs text-white placeholder-brandGray/40 outline-none font-mono"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-bold text-brandGray uppercase tracking-wider">Detailed Description</label>
+                    <textarea
+                      placeholder="Provide detailed background, rationale, and upgraded parameter limits."
+                      value={newPropDesc}
+                      onChange={(e) => setNewPropDesc(e.target.value)}
+                      rows={3}
+                      className="w-full bg-[#14151a] border border-white/5 focus:border-[#7c3aed]/40 rounded-xl px-4 py-2.5 text-xs text-white placeholder-brandGray/40 outline-none leading-relaxed resize-none"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => {
+                    if (!newPropTitle || !newPropTarget || !newPropAction || !newPropDesc) {
+                      return alert("Please fill in all wizard parameters.");
+                    }
+                    const newId = `ERP-${proposals.length + 11}`;
+                    setProposals(prev => [
+                      {
+                        id: newId,
+                        title: newPropTitle,
+                        description: newPropDesc,
+                        proposer: "GBXW...GOV8",
+                        votesFor: 2500,
+                        votesAgainst: 0,
+                        hasVoted: true,
+                        status: "Active",
+                        endsIn: "5 days"
+                      },
+                      ...prev
+                    ]);
+                    setIsCreatePropModalOpen(false);
+                    setNewPropTitle("");
+                    setNewPropTarget("");
+                    setNewPropAction("");
+                    setNewPropDesc("");
+                    alert(`Proposal ${newId} initialized and registered under active validation!`);
+                  }}
+                  className="w-full py-3.5 rounded-2xl bg-brandLime hover:bg-brandLime/90 text-brandDark font-bold text-xs tracking-wider transition-all shadow-[0_0_20px_rgba(212,255,63,0.15)] mt-2"
+                >
+                  Publish Governance Proposal
                 </button>
               </div>
             </motion.div>

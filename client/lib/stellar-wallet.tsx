@@ -61,25 +61,41 @@ export const StellarWalletProvider = ({ children }: { children: ReactNode }) => 
     setIsConnecting(true);
     setConnectionError(null);
     try {
+
+
       if (id === "freighter") {
-        const freighter = await import("@stellar/freighter-api");
-        // Trigger requestAccess directly which is much more reliable and forces the popup
-        let response;
-        try {
-          response = await freighter.requestAccess();
-        } catch (err: any) {
-          throw new Error(err.message || "Failed to trigger access request from Freighter extension. Make sure it is unlocked.");
+        let address = "";
+        if (typeof window !== "undefined" && ((window as any).stellarKeeper || (window as any).freighter)) {
+          try {
+            const keeper = (window as any).stellarKeeper || (window as any).freighter;
+            address = await keeper.requestAccess();
+          } catch (err: any) {
+            throw new Error(err.message || "Freighter rejected connection access.");
+          }
+        } else {
+          const freighter = await import("@stellar/freighter-api");
+          let hasFreighter = false;
+          try {
+            hasFreighter = await freighter.isConnected();
+          } catch (e) {
+            hasFreighter = true; // Bypasses timing timing checks
+          }
+          
+          if (!hasFreighter) {
+            throw new Error("Freighter extension not detected. Please make sure the browser extension is enabled and unlocked.");
+          }
+          
+          try {
+            address = await freighter.requestAccess();
+          } catch (err: any) {
+            throw new Error(err.message || "Freighter access request denied.");
+          }
         }
-        if (!response) {
-          throw new Error("User rejected connection request.");
-        }
-        if (typeof response === "object" && (response as any).error) {
-          throw new Error((response as any).error || "User rejected connection request.");
-        }
-        const address = typeof response === "string" ? response : (response as any).address;
+
         if (!address) {
-          throw new Error("Could not fetch address from Freighter.");
+          throw new Error("No address returned from Freighter wallet connection.");
         }
+        
         setWalletAddress(address);
         setWalletProvider("Freighter");
         localStorage.setItem("ergo_wallet_provider", "Freighter");

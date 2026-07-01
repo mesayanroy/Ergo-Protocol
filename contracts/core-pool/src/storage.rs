@@ -5,7 +5,14 @@ use soroban_sdk::{contracttype, Address, Env, Symbol};
 pub struct MarketConfig {
     pub active: bool,
     pub permissioned: bool,
-    pub debt_ceiling: i128,
+    pub debt_ceiling: i128,          // i128::MAX represents no ceiling
+    pub pool_type: u32,              // 0 = SharedCore, 1 = Satellite, 2 = Permissioned
+    pub asset: Address,              // Token asset contract address
+    pub collateral_factor: u32,      // basis points (e.g. 7500 for 75%)
+    pub liquidation_threshold: u32,  // basis points (e.g. 8000 for 80%)
+    pub emode_category: u32,         // 0 = default, 1 = correlated
+    pub total_supplied: i128,
+    pub total_borrowed: i128,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -23,6 +30,19 @@ pub enum DataKey {
     Market(Symbol),
     Position(Symbol, Address),
     Dependency(Symbol),
+    CreditAllowance(Symbol, Address, Address), // (market_id, delegator, delegatee)
+    MarketsList,
+}
+
+pub fn get_markets(env: &Env) -> Vec<Symbol> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::MarketsList)
+        .unwrap_or_else(|_| Vec::new(env))
+}
+
+pub fn set_markets(env: &Env, markets: &Vec<Symbol>) {
+    env.storage().persistent().set(&DataKey::MarketsList, markets);
 }
 
 pub fn set_admin(env: &Env, admin: &Address) {
@@ -62,4 +82,17 @@ pub fn get_position(env: &Env, market_id: Symbol, user: Address) -> PositionStat
             borrowed: 0,
             delegated: 0,
         })
+}
+
+pub fn set_credit_allowance(env: &Env, market_id: Symbol, delegator: Address, delegatee: Address, amount: i128) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::CreditAllowance(market_id, delegator, delegatee), &amount);
+}
+
+pub fn get_credit_allowance(env: &Env, market_id: Symbol, delegator: Address, delegatee: Address) -> i128 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::CreditAllowance(market_id, delegator, delegatee))
+        .unwrap_or(0)
 }

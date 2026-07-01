@@ -6,19 +6,29 @@ use crate::storage;
 /// Delegates borrowing power from delegator to delegatee in a market.
 ///
 /// Failure conditions:
-/// - Returns `Error::InvalidAmount` when `allowance` is non-positive.
+/// - Returns `Error::InvalidAmount` when `allowance` is negative.
 pub fn delegate_credit(
-    _env: &Env,
-    _delegator: Address,
-    _delegatee: Address,
-    _market_id: Symbol,
+    env: &Env,
+    delegator: Address,
+    delegatee: Address,
+    market_id: Symbol,
     allowance: i128,
 ) -> Result<(), Error> {
-    if allowance <= 0 {
+    delegator.require_auth();
+    if allowance < 0 {
         return Err(Error::InvalidAmount);
     }
-    let mut position = storage::get_position(_env, _market_id.clone(), _delegator.clone());
-    position.delegated = allowance;
-    storage::set_position(_env, _market_id, _delegator, &position);
+    
+    storage::set_credit_allowance(env, market_id, delegator, delegatee, allowance);
     Ok(())
+}
+
+/// Returns the remaining delegated credit limit between delegator and delegatee.
+pub fn get_credit_allowance(
+    env: &Env,
+    market_id: Symbol,
+    delegator: Address,
+    delegatee: Address,
+) -> i128 {
+    storage::get_credit_allowance(env, market_id, delegator, delegatee)
 }

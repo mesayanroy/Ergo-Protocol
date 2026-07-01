@@ -8,5 +8,7 @@ pub enum Error {
     AuctionExpired = 2,
     InvalidAmount = 3,
     Unauthorized = 4,
+    HealthFactorTooHigh = 5,
+    CorePoolNotFound = 6,
     Unsupported = 99,
 }

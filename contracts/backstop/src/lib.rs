@@ -15,6 +15,22 @@ pub struct BackstopContract;
 
 #[contractimpl]
 impl BackstopContract {
+    /// Initializes backstop pool admin and dependencies.
+    pub fn initialize(
+        env: Env,
+        governance: Address,
+        liquidation_engine: Address,
+        base_asset: Address,
+    ) -> Result<(), Error> {
+        if storage::get_governance(&env).is_some() {
+            return Err(Error::Unauthorized);
+        }
+        storage::set_governance(&env, &governance);
+        storage::set_liquidation_engine(&env, &liquidation_engine);
+        storage::set_base_asset(&env, &base_asset);
+        Ok(())
+    }
+
     /// Deposits capital into pool backstop.
     pub fn deposit(env: Env, user: Address, pool_id: u32, amount: i128) -> Result<(), Error> {
         deposit::deposit(&env, user, pool_id, amount)
@@ -23,6 +39,11 @@ impl BackstopContract {
     /// Queues a withdrawal with cooldown.
     pub fn queue_withdrawal(env: Env, user: Address, pool_id: u32, amount: i128) -> Result<(), Error> {
         deposit::queue_withdrawal(&env, user, pool_id, amount)
+    }
+
+    /// Claims a queued withdrawal after cooldown expires.
+    pub fn claim_withdrawal(env: Env, user: Address, pool_id: u32) -> Result<(), Error> {
+        deposit::claim_withdrawal(&env, user, pool_id)
     }
 
     /// Draws from a specific pool by liquidation engine.

@@ -1,11 +1,12 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, Address, Env, Symbol};
+use soroban_sdk::{contract, contractimpl, Address, Env, Symbol, Vec};
 
 pub mod aggregate;
 pub mod circuit_breaker;
 pub mod errors;
 pub mod feeds;
+pub mod storage;
 
 use crate::errors::Error;
 
@@ -14,6 +15,15 @@ pub struct OracleAggregatorContract;
 
 #[contractimpl]
 impl OracleAggregatorContract {
+    /// Initializes core oracle admin and dependency addresses.
+    pub fn initialize(env: Env, admin: Address) -> Result<(), Error> {
+        if storage::get_admin(&env).is_some() {
+            return Err(Error::Unauthorized);
+        }
+        storage::set_admin(&env, &admin);
+        Ok(())
+    }
+
     /// Reads the median price for an asset from valid feeds.
     pub fn get_price(env: Env, asset: Symbol) -> Result<i128, Error> {
         aggregate::get_price(&env, asset)
@@ -35,7 +45,7 @@ impl OracleAggregatorContract {
     }
 
     /// Replaces feeds for one asset after a breaker event.
-    pub fn override_with_new_feeds(env: Env, governance: Address, asset: Symbol) -> Result<(), Error> {
-        circuit_breaker::override_with_new_feeds(&env, governance, asset)
+    pub fn override_with_new_feeds(env: Env, governance: Address, asset: Symbol, feeds: Vec<Address>) -> Result<(), Error> {
+        circuit_breaker::override_with_new_feeds(&env, governance, asset, feeds)
     }
 }

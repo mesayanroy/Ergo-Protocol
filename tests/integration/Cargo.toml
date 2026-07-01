@@ -5,3 +5,12 @@ edition = "2021"
 
 [lib]
 path = "src/lib.rs"
+
+[dependencies]
+soroban-sdk = "22.0.0"
+core-pool = { path = "../../contracts/core-pool" }
+oracle-aggregator = { path = "../../contracts/oracle-aggregator" }
+backstop = { path = "../../contracts/backstop" }
+liquidation-engine = { path = "../../contracts/liquidation-engine" }
+governance = { path = "../../contracts/governance" }
+compliance = { path = "../../contracts/compliance" }
