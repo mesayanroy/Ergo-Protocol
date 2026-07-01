@@ -3,3 +3,5 @@ dist/
 .next/
 target/
 .env
+.env.local
+.env.*

@@ -43,7 +43,7 @@ export const StellarWalletProvider = ({ children }: { children: ReactNode }) => 
     if (typeof window === "undefined") return false;
     switch (id) {
       case "freighter":
-        return !!(window as any).freighterApi || !!(window as any).stellar?.isFreighter || !!(window as any).stellarPublicKey;
+        return true; // Bypasses timing issues: always allow attempting Freighter connection
       case "xbull":
         return !!(window as any).xBullSDK;
       case "hana":
@@ -63,19 +63,20 @@ export const StellarWalletProvider = ({ children }: { children: ReactNode }) => 
     try {
       if (id === "freighter") {
         const freighter = await import("@stellar/freighter-api");
-        const connectResult = await freighter.isConnected();
-        const connected = typeof connectResult === "boolean" ? connectResult : connectResult?.isConnected;
-        if (!connected) {
-          throw new Error("Freighter extension is not installed.");
+        // Trigger requestAccess directly which is much more reliable and forces the popup
+        let response;
+        try {
+          response = await freighter.requestAccess();
+        } catch (err: any) {
+          throw new Error(err.message || "Failed to trigger access request from Freighter extension. Make sure it is unlocked.");
         }
-        const response = await freighter.requestAccess();
         if (!response) {
           throw new Error("User rejected connection request.");
         }
-        if (typeof response === "object" && response.error) {
-          throw new Error(response.error || "User rejected connection request.");
+        if (typeof response === "object" && (response as any).error) {
+          throw new Error((response as any).error || "User rejected connection request.");
         }
-        const address = typeof response === "string" ? response : response.address;
+        const address = typeof response === "string" ? response : (response as any).address;
         if (!address) {
           throw new Error("Could not fetch address from Freighter.");
         }

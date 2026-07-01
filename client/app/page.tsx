@@ -49,7 +49,7 @@ export default function HomePage() {
           <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-brandGray">
             <a href="#about" className="hover:text-white transition-colors duration-200">About</a>
             <a href="#features" className="hover:text-white transition-colors duration-200">Features</a>
-            <a href="#dashboard" className="hover:text-white transition-colors duration-200">Dashboard</a>
+            <a href="/dashboard" className="hover:text-white transition-colors duration-200">Dashboard</a>
             <a href="#use-cases" className="hover:text-white transition-colors duration-200">Use Cases</a>
             <a href="#developers" className="hover:text-white transition-colors duration-200">Developers</a>
           </nav>
@@ -105,7 +105,7 @@ export default function HomePage() {
               Features
             </a>
             <a 
-              href="#dashboard" 
+              href="/dashboard" 
               onClick={() => setIsMobileMenuOpen(false)}
               className="text-base font-medium text-brandGray hover:text-white py-2 border-b border-white/5"
             >
@@ -190,7 +190,7 @@ export default function HomePage() {
             {/* Call to Actions */}
             <div className="flex flex-col sm:flex-row gap-4 mb-8 w-full sm:w-auto drop-shadow-[0_4px_12px_rgba(0,0,0,0.9)]">
               <a 
-                href="#launch" 
+                href="/dashboard" 
                 className="px-8 py-4 rounded-full text-sm font-semibold tracking-wider text-brandDark bg-brandLime shadow-[0_0_20px_rgba(212,255,63,0.25)] transition-all duration-300 hover:scale-[1.03] hover:shadow-[0_0_30px_rgba(212,255,63,0.4)] text-center"
               >
                 Try it now
@@ -674,10 +674,10 @@ export default function HomePage() {
             </p>
             
             <div className="flex flex-col sm:flex-row gap-4 justify-center items-center w-full sm:w-auto">
-              <a href="#testnet" className="w-full sm:w-52 py-4 rounded-full text-sm font-semibold tracking-wider text-brandDark bg-brandLime shadow-[0_0_20px_rgba(212,255,63,0.2)] hover:scale-[1.02] transition-transform text-center">
+              <a href="/dashboard" className="w-full sm:w-52 py-4 rounded-full text-sm font-semibold tracking-wider text-brandDark bg-brandLime shadow-[0_0_20px_rgba(212,255,63,0.2)] hover:scale-[1.02] transition-transform text-center">
                 Launch Mainnet
               </a>
-              <a href="#mainnet" className="w-full sm:w-52 py-4 rounded-full text-sm font-semibold tracking-wider text-white border border-white/10 hover:bg-white/5 transition-colors text-center">
+              <a href="/dashboard" className="w-full sm:w-52 py-4 rounded-full text-sm font-semibold tracking-wider text-white border border-white/10 hover:bg-white/5 transition-colors text-center">
                 Access Testnet
               </a>
             </div>
