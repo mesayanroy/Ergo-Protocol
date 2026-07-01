@@ -8,7 +8,7 @@ import {
   Wallet, Globe, TrendingUp, Shield, ArrowLeftRight, CircleDot, UserCog,
   Search, Bell, Settings, ArrowUpRight, ArrowDownRight, Check, X,
   AlertTriangle, Info, Clock, Plus, Minus, HelpCircle, LogOut,
-  Sliders, ChevronRight, Activity, Award
+  Sliders, ChevronRight, Activity, Award, ChevronDown, Copy, ExternalLink
 } from "lucide-react";
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, LineChart, Line,
@@ -283,6 +283,12 @@ export default function ErgoDashboard() {
     },
   ]);
 
+  const [expandedPools, setExpandedPools] = useState<Record<string, boolean>>({});
+  const [walletDropdownOpen, setWalletDropdownOpen] = useState(false);
+  const [showEmodeConfirm, setShowEmodeConfirm] = useState(false);
+  const [wizardStep, setWizardStep] = useState(1);
+  const [proposalType, setProposalType] = useState("MarketPauseResume");
+
   // Notification lists
   const [notifications, setNotifications] = useState([
     { id: 1, type: "success", title: "Supply Verified", message: "Supplied 8,000 XLM to Shared Liquidity Pool", time: "2 min ago", read: false },
@@ -451,7 +457,7 @@ export default function ErgoDashboard() {
       </div>
 
       {/* ─── SIDEBAR (Left Panel) ─────────────────────────────────── */}
-      <aside className="w-64 border-r border-white/5 bg-[#121316]/40 backdrop-blur-xl shrink-0 flex flex-col justify-between z-10">
+      <aside className="hidden md:flex w-64 border-r border-white/5 bg-[#121316]/40 backdrop-blur-xl shrink-0 flex-col justify-between z-10">
         <div className="flex flex-col gap-6 p-6">
           {/* Logo */}
           <div className="flex items-center gap-3.5">
@@ -538,6 +544,18 @@ export default function ErgoDashboard() {
             <span>Protocol</span>
             <ChevronRight className="size-3 text-brandGray/40" />
             <span className="text-white font-semibold capitalize">{activeSection}</span>
+            {totals.borrowedUSD > 0 && (
+              <span 
+                className="md:hidden ml-2 px-2 py-0.5 rounded-full text-[9px] font-bold border"
+                style={{
+                  borderColor: totals.healthFactor < 1.2 ? C.red : totals.healthFactor < 2.0 ? "#f59e0b" : C.lime,
+                  color: totals.healthFactor < 1.2 ? C.red : totals.healthFactor < 2.0 ? "#f59e0b" : C.lime,
+                  backgroundColor: totals.healthFactor < 1.2 ? "rgba(239,68,68,0.1)" : totals.healthFactor < 2.0 ? "rgba(245,158,11,0.1)" : "rgba(212,255,63,0.1)"
+                }}
+              >
+                HF: {totals.healthFactor > 50 ? "Infinite" : totals.healthFactor}
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-4">
@@ -601,16 +619,69 @@ export default function ErgoDashboard() {
               </AnimatePresence>
             </div>
 
-            {/* Staking Badge */}
-            <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#7c3aed]/10 border border-[#7c3aed]/20 text-[10px] font-bold text-[#7c3aed] uppercase tracking-wider">
-              <Award className="size-3.5" />
-              Soroban Staker
-            </div>
+            {/* Connected Wallet Dropdown */}
+            {walletAddress ? (
+              <div className="relative">
+                <button
+                  onClick={() => setWalletDropdownOpen(!walletDropdownOpen)}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/5 border border-white/5 text-xs text-white font-mono hover:bg-white/10 transition-colors"
+                >
+                  <span className="text-[9px] bg-brandLime/10 text-brandLime px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">
+                    {walletProvider || "FREIGHTER"}
+                  </span>
+                  <span>{walletAddress.slice(0, 4)}...{walletAddress.slice(-4)}</span>
+                  <ChevronDown className="size-3 text-brandGray" />
+                </button>
+
+                {walletDropdownOpen && (
+                  <div className="absolute right-0 mt-2 w-48 rounded-2xl border border-white/5 bg-[#121316]/95 backdrop-blur-xl p-2 shadow-2xl z-50 flex flex-col gap-1">
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(walletAddress);
+                        alert("Address copied to clipboard!");
+                        setWalletDropdownOpen(false);
+                      }}
+                      className="flex items-center gap-2 px-3 py-2 text-left text-xs text-[#9fadaa] hover:text-white hover:bg-white/5 rounded-xl transition-all w-full"
+                    >
+                      <Copy className="size-3.5" />
+                      Copy Address
+                    </button>
+                    <a
+                      href={`https://stellar.expert/explorer/testnet/account/${walletAddress}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 px-3 py-2 text-left text-xs text-[#9fadaa] hover:text-white hover:bg-white/5 rounded-xl transition-all"
+                    >
+                      <ExternalLink className="size-3.5" />
+                      Stellar Expert
+                    </a>
+                    <div className="h-px bg-white/5 my-1" />
+                    <button
+                      onClick={() => {
+                        disconnect();
+                        setWalletDropdownOpen(false);
+                      }}
+                      className="flex items-center gap-2 px-3 py-2 text-left text-xs text-red-400 hover:bg-red-500/5 rounded-xl transition-all w-full"
+                    >
+                      <LogOut className="size-3.5" />
+                      Disconnect
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <button
+                onClick={() => setIsConnectModalOpen(true)}
+                className="px-4 py-2 rounded-xl bg-brandLime text-brandDark font-bold text-xs tracking-wider shadow-[0_0_15px_rgba(212,255,63,0.15)] hover:scale-[1.02] transition-transform"
+              >
+                Connect Wallet
+              </button>
+            )}
           </div>
         </header>
 
         {/* Central Content Panel */}
-        <main className="p-8 flex-1">
+        <main className="p-8 pb-24 md:pb-8 flex-1">
           <AnimatePresence mode="wait">
             <motion.div
               key={activeSection}
@@ -654,8 +725,16 @@ export default function ErgoDashboard() {
                     <div className="p-5 rounded-2xl border border-white/5 bg-[#121316]/50 shadow-lg flex flex-col gap-1.5 relative overflow-hidden group">
                       <div className="absolute top-0 right-0 w-16 h-16 opacity-[0.03] pointer-events-none"><Shield className="size-16" /></div>
                       <span className="text-[10px] font-bold uppercase text-brandGray tracking-wider">Borrow Health Factor</span>
-                      <p className={`text-2xl font-bold font-mono ${totals.healthFactor < 1.1 ? "text-red-500" : totals.healthFactor < 1.5 ? "text-amber-500" : "text-brandLime"}`}>{totals.healthFactor > 50 ? "Infinite" : totals.healthFactor}</p>
-                      <span className="text-[10px] text-brandGray mt-2">Liquidation Limit: 1.00</span>
+                      <p className={`text-2xl font-bold font-mono ${
+                        totals.healthFactor <= 1.2 ? "text-red-500" : totals.healthFactor <= 2.0 ? "text-amber-500" : "text-brandLime"
+                      }`}>{totals.healthFactor > 50 ? "Infinite" : totals.healthFactor}</p>
+                      <div className="flex items-center gap-1 mt-2 group/tooltip relative cursor-help">
+                        <span className="text-[10px] text-brandGray">Liquidation Limit: 1.00</span>
+                        <HelpCircle className="size-3 text-brandGray/40" />
+                        <div className="absolute bottom-6 left-0 w-48 p-2 rounded-lg bg-[#14151a] border border-white/5 text-[9px] text-[#9fadaa] leading-normal opacity-0 pointer-events-none group-hover/tooltip:opacity-100 transition-opacity z-20 shadow-xl">
+                          Liquidation occurs at 1.00. Your position is liquidated when collateral value / debt value falls below this threshold.
+                        </div>
+                      </div>
                     </div>
                   </div>
 
@@ -670,7 +749,13 @@ export default function ErgoDashboard() {
                             <span className="text-[9px] bg-brandLime/15 text-brandLime px-2 py-0.5 rounded font-bold">Category 1 Active</span>
                           </h4>
                           <button
-                            onClick={() => setEmodeEnabled(!emodeEnabled)}
+                            onClick={() => {
+                              if (!emodeEnabled) {
+                                setShowEmodeConfirm(true);
+                              } else {
+                                setEmodeEnabled(false);
+                              }
+                            }}
                             className={`w-10 h-6 rounded-full transition-all relative ${emodeEnabled ? "bg-brandLime" : "bg-white/10"}`}
                           >
                             <div className={`absolute top-1 size-4 rounded-full bg-black transition-all ${emodeEnabled ? "translate-x-5" : "translate-x-1"}`} />
@@ -728,9 +813,20 @@ export default function ErgoDashboard() {
 
                       <div className="flex flex-col gap-2 max-h-16 overflow-y-auto">
                         {activeDelegations.map((d, i) => (
-                          <div key={i} className="flex justify-between items-center text-[10px] font-mono">
-                            <span className="text-brandGray truncate max-w-[180px]">{d.address}</span>
-                            <span className="text-white">${d.limit} USDC delegated</span>
+                          <div key={i} className="flex justify-between items-center text-[10px] font-mono border-b border-white/5 pb-1">
+                            <span className="text-brandGray truncate max-w-[150px]">{d.address}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-white">${d.limit} USDC</span>
+                              <button
+                                onClick={() => {
+                                  setActiveDelegations(prev => prev.filter((_, idx) => idx !== i));
+                                  alert("Credit delegation revoked successfully.");
+                                }}
+                                className="text-red-400 hover:text-red-300 font-bold px-1.5 py-0.5 rounded bg-red-500/10 transition-colors"
+                              >
+                                Revoke
+                              </button>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -944,97 +1040,250 @@ export default function ErgoDashboard() {
               {activeSection === "market" && (
                 <div className="flex flex-col gap-6">
                   <div className="rounded-2xl border border-white/5 bg-[#121316]/50 p-6">
-                    <h3 className="text-base font-bold text-white">Stellar Shared Liquidity Pools</h3>
+                    <h3 className="text-base font-bold text-white">Stellar Shared Liquidity Core & Satellite Pools</h3>
                     <p className="text-xs text-brandGray mt-1">Lend or borrow assets with non-custodial Dutch liquidation security.</p>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-4">
-                    {assetPools.map(pool => {
-                      const poolType = pool.id === "usdc" ? "Shared Core" : pool.id === "eurc" ? "Permissioned" : "Satellite";
-                      const emodeLabel = pool.id === "usdc" || pool.id === "eurc" ? "Category 1 (Stable)" : "None";
-                      const debtCeiling = pool.id === "usdc" ? 10000000 : pool.id === "eurc" ? 1000000 : 5000000;
-                      const ceilingPercent = Math.min((pool.totalBorrowed / debtCeiling) * 100, 100);
-
-                      return (
-                        <div key={pool.id} className="p-6 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col gap-5 hover:scale-[1.01] transition-transform duration-300">
-                          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                            <div className="flex items-center gap-3.5">
-                              <span className="text-3xl">{pool.logo}</span>
-                              <div>
-                                <div className="flex items-center gap-2">
-                                  <h4 className="text-base font-bold text-white font-mono">{pool.symbol}</h4>
-                                  <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
-                                    poolType === "Shared Core" ? "bg-[#d4ff3f]/10 text-[#d4ff3f] border border-[#d4ff3f]/20" :
-                                    poolType === "Permissioned" ? "bg-amber-500/10 text-amber-500 border border-amber-500/20" :
-                                    "bg-[#7c3aed]/10 text-[#7c3aed] border border-[#7c3aed]/20"
-                                  }`}>
-                                    {poolType}
-                                  </span>
-                                  {emodeLabel !== "None" && (
-                                    <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                                      E-Mode: {emodeLabel}
+                  {/* Shared Liquidity Core Section */}
+                  <div className="flex flex-col gap-4">
+                    <h4 className="text-xs font-bold text-[#d4ff3f] uppercase tracking-wider pl-1">Shared Liquidity Core</h4>
+                    {assetPools
+                      .filter(p => p.id === "usdc" || p.id === "eurc")
+                      .map(pool => {
+                        const poolType = pool.id === "usdc" ? "SHARED CORE" : "PERMISSIONED";
+                        const isExpanded = !!expandedPools[pool.id];
+                        return (
+                          <div key={pool.id} className="p-6 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col gap-4 hover:scale-[1.005] transition-transform duration-300">
+                            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                              <div className="flex items-center gap-3.5">
+                                <span className="text-3xl">{pool.logo}</span>
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <h4 className="text-base font-bold text-white font-mono">{pool.symbol}</h4>
+                                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
+                                      poolType === "SHARED CORE" ? "bg-[#d4ff3f]/10 text-[#d4ff3f] border border-[#d4ff3f]/20" :
+                                      "bg-white/5 text-white border border-white/20"
+                                    }`}>
+                                      {poolType}
                                     </span>
-                                  )}
+                                    <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                                      E-Mode: 90% LTV
+                                    </span>
+                                  </div>
+                                  <p className="text-[10px] text-brandGray font-sans">{pool.name}</p>
                                 </div>
-                                <p className="text-[10px] text-brandGray font-sans">{pool.name}</p>
+                              </div>
+
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-6 w-full md:w-auto">
+                                <div>
+                                  <span className="text-[10px] text-brandGray uppercase tracking-wider block">Total Supply</span>
+                                  <span className="text-sm font-bold text-white font-mono">${(pool.tvl * prices[pool.id]).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                                </div>
+                                <div>
+                                  <span className="text-[10px] text-brandGray uppercase tracking-wider block">Total Borrow</span>
+                                  <span className="text-sm font-bold text-white font-mono">${(pool.totalBorrowed * prices[pool.id]).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                                </div>
+                                <div>
+                                  <span className="text-[10px] text-brandGray uppercase tracking-wider block">Supply APY</span>
+                                  <span className="text-sm font-bold text-brandLime font-mono">+{pool.supplyApy}%</span>
+                                </div>
+                                <div>
+                                  <span className="text-[10px] text-brandGray uppercase tracking-wider block">Borrow APY</span>
+                                  <span className="text-sm font-bold text-brandPurple font-mono">+{pool.borrowApy}%</span>
+                                </div>
+                              </div>
+
+                              <div className="flex gap-2 shrink-0 w-full md:w-auto">
+                                <button
+                                  onClick={() => {
+                                    setExpandedPools(prev => ({ ...prev, [pool.id]: !prev[pool.id] }));
+                                  }}
+                                  className="px-3.5 py-2.5 rounded-xl border border-white/5 text-xs text-brandGray hover:text-white hover:bg-white/5"
+                                >
+                                  {isExpanded ? "Hide Details" : "Details"}
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setSelectedAssetId(pool.id);
+                                    setTxType("supply");
+                                    setIsTxModalOpen(true);
+                                  }}
+                                  className="flex-1 md:flex-initial px-5 py-2.5 rounded-xl bg-brandLime text-brandDark font-bold text-xs tracking-wider shadow-[0_0_15px_rgba(212,255,63,0.15)] hover:scale-[1.02] transition-transform"
+                                >
+                                  Supply
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setSelectedAssetId(pool.id);
+                                    setTxType("borrow");
+                                    setIsTxModalOpen(true);
+                                  }}
+                                  className="flex-1 md:flex-initial px-5 py-2.5 rounded-xl border border-white/10 text-white font-bold text-xs tracking-wider hover:bg-white/5 transition-colors"
+                                >
+                                  Borrow
+                                </button>
                               </div>
                             </div>
 
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-6 w-full md:w-auto">
-                              <div>
-                                <span className="text-[10px] text-brandGray uppercase tracking-wider block">Total Supply</span>
-                                <span className="text-sm font-bold text-white font-mono">${(pool.tvl * prices[pool.id]).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-                              </div>
-                              <div>
-                                <span className="text-[10px] text-brandGray uppercase tracking-wider block">Total Borrow</span>
-                                <span className="text-sm font-bold text-white font-mono">${(pool.totalBorrowed * prices[pool.id]).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-                              </div>
-                              <div>
-                                <span className="text-[10px] text-brandGray uppercase tracking-wider block">Supply APY</span>
-                                <span className="text-sm font-bold text-brandLime font-mono">+{pool.supplyApy}%</span>
-                              </div>
-                              <div>
-                                <span className="text-[10px] text-brandGray uppercase tracking-wider block">Borrow APY</span>
-                                <span className="text-sm font-bold text-brandPurple font-mono">+{pool.borrowApy}%</span>
-                              </div>
-                            </div>
-
-                            <div className="flex gap-2 shrink-0 w-full md:w-auto">
-                              <button
-                                onClick={() => {
-                                  setSelectedAssetId(pool.id);
-                                  setTxType("supply");
-                                  setIsTxModalOpen(true);
-                                }}
-                                className="flex-1 md:flex-initial px-6 py-2.5 rounded-xl bg-brandLime text-brandDark font-bold text-xs tracking-wider shadow-[0_0_15px_rgba(212,255,63,0.15)] hover:scale-[1.02] transition-transform"
+                            {/* Collapsible Details Drawer */}
+                            {isExpanded && (
+                              <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: "auto", opacity: 1 }}
+                                className="border-t border-white/5 pt-4 mt-2 grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs"
                               >
-                                Supply
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setSelectedAssetId(pool.id);
-                                  setTxType("borrow");
-                                  setIsTxModalOpen(true);
-                                }}
-                                className="flex-1 md:flex-initial px-6 py-2.5 rounded-xl border border-white/10 text-white font-bold text-xs tracking-wider hover:bg-white/5 transition-colors"
-                              >
-                                Borrow
-                              </button>
-                            </div>
+                                <div>
+                                  <span className="text-brandGray block mb-1 text-[10px] uppercase">Risk Parameters</span>
+                                  <span className="text-white font-mono block">Collateral Factor: {pool.collateralFactor}%</span>
+                                  <span className="text-brandGray block text-[10px]">Liq. Threshold: {pool.collateralFactor + 5}%</span>
+                                </div>
+                                <div>
+                                  <span className="text-brandGray block mb-1 text-[10px] uppercase">Oracle Feeds</span>
+                                  <span className="text-white block font-semibold">Reflector + DEX TWAP</span>
+                                  <span className="text-brandGray block text-[10px]">Updated: 2 ledgers ago</span>
+                                </div>
+                                <div>
+                                  <span className="text-brandGray block mb-1 text-[10px] uppercase">Circuit Breaker</span>
+                                  <span className="text-brandLime font-semibold flex items-center gap-1">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-brandLime animate-pulse" /> Active & Healthy
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="text-brandGray block mb-1 text-[10px] uppercase">Backstop Coverage</span>
+                                  <span className="text-white font-mono block">142% funded</span>
+                                </div>
+                              </motion.div>
+                            )}
                           </div>
+                        );
+                      })}
+                  </div>
 
-                          <div className="border-t border-white/5 pt-3.5 flex flex-col gap-1.5">
-                            <div className="flex justify-between text-[10px] text-brandGray">
-                              <span>Debt Ceiling Utilisation: <span className="font-mono text-white">${pool.totalBorrowed.toLocaleString()} / ${debtCeiling.toLocaleString()}</span></span>
-                              <span className="font-mono text-brandLime font-bold">{ceilingPercent.toFixed(1)}%</span>
+                  {/* Isolated Satellite Pools Section */}
+                  <div className="flex flex-col gap-4 mt-4">
+                    <h4 className="text-xs font-bold text-[#7c3aed] uppercase tracking-wider pl-1">Isolated Satellite Pools</h4>
+                    {assetPools
+                      .filter(p => p.id === "xlm" || p.id === "ergo")
+                      .map(pool => {
+                        const poolType = "SATELLITE";
+                        const isExpanded = !!expandedPools[pool.id];
+                        const debtCeiling = pool.id === "xlm" ? 5000000 : 2500000;
+                        const ceilingPercent = Math.min((pool.totalBorrowed / debtCeiling) * 100, 100);
+                        return (
+                          <div key={pool.id} className="p-6 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col gap-5 hover:scale-[1.005] transition-transform duration-300">
+                            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                              <div className="flex items-center gap-3.5">
+                                <span className="text-3xl">{pool.logo}</span>
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <h4 className="text-base font-bold text-white font-mono">{pool.symbol}</h4>
+                                    <span className="bg-[#7c3aed]/10 text-[#7c3aed] border border-[#7c3aed]/20 text-[9px] font-bold px-2 py-0.5 rounded-full">
+                                      {poolType}
+                                    </span>
+                                    {pool.id === "xlm" && (
+                                      <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                                        E-Mode: 90% LTV
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-[10px] text-brandGray font-sans">{pool.name}</p>
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-6 w-full md:w-auto">
+                                <div>
+                                  <span className="text-[10px] text-brandGray uppercase tracking-wider block">Total Supply</span>
+                                  <span className="text-sm font-bold text-white font-mono">${(pool.tvl * prices[pool.id]).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                                </div>
+                                <div>
+                                  <span className="text-[10px] text-brandGray uppercase tracking-wider block">Total Borrow</span>
+                                  <span className="text-sm font-bold text-white font-mono">${(pool.totalBorrowed * prices[pool.id]).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                                </div>
+                                <div>
+                                  <span className="text-[10px] text-brandGray uppercase tracking-wider block">Supply APY</span>
+                                  <span className="text-sm font-bold text-brandLime font-mono">+{pool.supplyApy}%</span>
+                                </div>
+                                <div>
+                                  <span className="text-[10px] text-brandGray uppercase tracking-wider block">Borrow APY</span>
+                                  <span className="text-sm font-bold text-brandPurple font-mono">+{pool.borrowApy}%</span>
+                                </div>
+                              </div>
+
+                              <div className="flex gap-2 shrink-0 w-full md:w-auto">
+                                <button
+                                  onClick={() => {
+                                    setExpandedPools(prev => ({ ...prev, [pool.id]: !prev[pool.id] }));
+                                  }}
+                                  className="px-3.5 py-2.5 rounded-xl border border-white/5 text-xs text-brandGray hover:text-white hover:bg-white/5"
+                                >
+                                  {isExpanded ? "Hide Details" : "Details"}
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setSelectedAssetId(pool.id);
+                                    setTxType("supply");
+                                    setIsTxModalOpen(true);
+                                  }}
+                                  className="flex-1 md:flex-initial px-5 py-2.5 rounded-xl bg-brandLime text-brandDark font-bold text-xs tracking-wider shadow-[0_0_15px_rgba(212,255,63,0.15)] hover:scale-[1.02] transition-transform"
+                                >
+                                  Supply
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setSelectedAssetId(pool.id);
+                                    setTxType("borrow");
+                                    setIsTxModalOpen(true);
+                                  }}
+                                  className="flex-1 md:flex-initial px-5 py-2.5 rounded-xl border border-white/10 text-white font-bold text-xs tracking-wider hover:bg-white/5 transition-colors"
+                                >
+                                  Borrow
+                                </button>
+                              </div>
                             </div>
-                            <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
-                              <div className="h-full bg-brandLime" style={{ width: `${ceilingPercent}%` }} />
+
+                            {/* Debt Ceiling Progress Bar */}
+                            <div className="border-t border-white/5 pt-3.5 flex flex-col gap-1.5">
+                              <div className="flex justify-between text-[10px] text-brandGray">
+                                <span>Debt Used: <span className="font-mono text-white">${pool.totalBorrowed.toLocaleString()} / ${debtCeiling.toLocaleString()} cap</span></span>
+                                <span className="font-mono text-[#7c3aed] font-bold">{ceilingPercent.toFixed(1)}%</span>
+                              </div>
+                              <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+                                <div className="h-full bg-[#7c3aed]" style={{ width: `${ceilingPercent}%` }} />
+                              </div>
                             </div>
+
+                            {/* Collapsible Details Drawer */}
+                            {isExpanded && (
+                              <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: "auto", opacity: 1 }}
+                                className="border-t border-white/5 pt-2 mt-2 grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs"
+                              >
+                                <div>
+                                  <span className="text-brandGray block mb-1 text-[10px] uppercase">Risk Parameters</span>
+                                  <span className="text-white font-mono block">Collateral Factor: {pool.collateralFactor}%</span>
+                                  <span className="text-brandGray block text-[10px]">Liq. Threshold: {pool.collateralFactor + 5}%</span>
+                                </div>
+                                <div>
+                                  <span className="text-brandGray block mb-1 text-[10px] uppercase">Oracle Feeds</span>
+                                  <span className="text-white block font-semibold">Reflector + DEX TWAP</span>
+                                  <span className="text-brandGray block text-[10px]">Updated: 2 ledgers ago</span>
+                                </div>
+                                <div>
+                                  <span className="text-brandGray block mb-1 text-[10px] uppercase">Circuit Breaker</span>
+                                  <span className="text-brandLime font-semibold flex items-center gap-1">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-brandLime animate-pulse" /> Active & Healthy
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="text-brandGray block mb-1 text-[10px] uppercase">Backstop Coverage</span>
+                                  <span className="text-white font-mono block">120% funded</span>
+                                </div>
+                              </motion.div>
+                            )}
                           </div>
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
                   </div>
                 </div>
               )}
@@ -1537,7 +1786,7 @@ export default function ErgoDashboard() {
       {/* ─── TRANSACTION DIALOG MODAL (SUPPLY/BORROW/REPAY/WITHDRAW) ─ */}
       <AnimatePresence>
         {isTxModalOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[100] flex items-end md:items-center justify-center p-0 md:p-4">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1547,11 +1796,11 @@ export default function ErgoDashboard() {
             />
 
             <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              transition={{ type: "spring", duration: 0.5 }}
-              className="relative w-full max-w-md rounded-[2.5rem] border border-white/5 bg-[#0e0f12]/95 overflow-hidden shadow-2xl p-6 z-10"
+              initial={{ opacity: 0, y: 100 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 100 }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              className="relative w-full md:max-w-md rounded-t-[2.5rem] md:rounded-[2.5rem] border border-white/5 bg-[#0e0f12]/95 overflow-hidden shadow-2xl p-6 z-10 pb-12 md:pb-6"
             >
               {/* Close Button */}
               <button
@@ -1626,116 +1875,64 @@ export default function ErgoDashboard() {
         )}
       </AnimatePresence>
 
-      {/* Proposal Creation Wizard Modal */}
+
+
+      {/* E-Mode Activation Risk/Reward Confirmation Modal */}
       <AnimatePresence>
-        {isCreatePropModalOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+        {showEmodeConfirm && (
+          <div className="fixed inset-0 z-[110] flex items-end md:items-center justify-center p-0 md:p-4">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setIsCreatePropModalOpen(false)}
-              className="absolute inset-0 bg-black/75 backdrop-blur-md"
+              onClick={() => setShowEmodeConfirm(false)}
+              className="absolute inset-0 bg-black/85 backdrop-blur-md"
             />
 
             <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              transition={{ type: "spring", duration: 0.5 }}
-              className="relative w-full max-w-md rounded-[2.5rem] border border-white/5 bg-[#0e0f12]/95 overflow-hidden shadow-2xl p-6 z-10"
+              initial={{ opacity: 0, y: 100 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 100 }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              className="relative w-full md:max-w-md rounded-t-[2.5rem] md:rounded-[2.5rem] border border-white/5 bg-[#0e0f12]/95 overflow-hidden shadow-2xl p-6 z-10 flex flex-col gap-5 pb-12 md:pb-6"
             >
-              {/* Close Button */}
-              <button
-                onClick={() => setIsCreatePropModalOpen(false)}
-                className="absolute top-6 right-6 text-brandGray hover:text-white transition-colors z-20 w-8 h-8 rounded-full bg-white/5 flex items-center justify-center border border-white/5 hover:bg-white/10"
-                aria-label="Close modal"
-              >
-                <X className="size-4" />
-              </button>
+              <div>
+                <span className="text-[10px] uppercase tracking-widest text-brandLime font-bold">Risk Confirmation</span>
+                <h4 className="text-lg font-bold text-white mt-1">Activate Efficiency Mode (E-Mode)?</h4>
+              </div>
 
-              <div className="flex flex-col gap-4">
-                <div>
-                  <span className="text-[10px] uppercase tracking-widest text-[#7c3aed] font-semibold">Governance Wizard</span>
-                  <h4 className="text-xl font-bold text-white mt-1">Create New Proposal</h4>
+              <div className="flex flex-col gap-3 text-xs leading-relaxed text-brandGray">
+                <div className="p-4 rounded-xl bg-brandLime/5 border border-brandLime/10 text-brandLime">
+                  <span className="font-bold block mb-1">🎁 Reward: Maximum Capital Efficiency</span>
+                  Boosts collateral factor parameters for correlated assets (USDC, EURC) from 75% to <strong>90% maximum LTV limit</strong>.
                 </div>
 
-                <div className="flex flex-col gap-3">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-bold text-brandGray uppercase tracking-wider">Proposal Title</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Increase USDC Collateral Factor to 85%"
-                      value={newPropTitle}
-                      onChange={(e) => setNewPropTitle(e.target.value)}
-                      className="w-full bg-[#14151a] border border-white/5 focus:border-[#7c3aed]/40 rounded-xl px-4 py-2.5 text-xs text-white placeholder-brandGray/40 outline-none"
-                    />
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-bold text-brandGray uppercase tracking-wider">Target Contract Address</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. CC_POOL_CONTRACT_ADDRESS"
-                      value={newPropTarget}
-                      onChange={(e) => setNewPropTarget(e.target.value)}
-                      className="w-full bg-[#14151a] border border-white/5 focus:border-[#7c3aed]/40 rounded-xl px-4 py-2.5 text-xs text-white placeholder-brandGray/40 outline-none font-mono"
-                    />
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-bold text-brandGray uppercase tracking-wider">Target Action / Method</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. set_collateral_factor"
-                      value={newPropAction}
-                      onChange={(e) => setNewPropAction(e.target.value)}
-                      className="w-full bg-[#14151a] border border-white/5 focus:border-[#7c3aed]/40 rounded-xl px-4 py-2.5 text-xs text-white placeholder-brandGray/40 outline-none font-mono"
-                    />
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-bold text-brandGray uppercase tracking-wider">Detailed Description</label>
-                    <textarea
-                      placeholder="Provide detailed background, rationale, and upgraded parameter limits."
-                      value={newPropDesc}
-                      onChange={(e) => setNewPropDesc(e.target.value)}
-                      rows={3}
-                      className="w-full bg-[#14151a] border border-white/5 focus:border-[#7c3aed]/40 rounded-xl px-4 py-2.5 text-xs text-white placeholder-brandGray/40 outline-none leading-relaxed resize-none"
-                    />
-                  </div>
+                <div className="p-4 rounded-xl bg-red-500/5 border border-red-500/10 text-red-400">
+                  <span className="font-bold block mb-1">⚠️ Risk: Price De-Peg Volatility</span>
+                  If the relative price peg between Category 1 assets fluctuates, liquidation occurs significantly closer to the debt floor.
                 </div>
 
+                <p className="text-[10px] text-brandGray/60 mt-1">
+                  By confirming, you execute a state update on your user position struct inside the Core Pool contract.
+                </p>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowEmodeConfirm(false)}
+                  className="flex-1 py-3.5 rounded-2xl border border-white/5 text-xs text-white hover:bg-white/5 font-semibold"
+                >
+                  Cancel
+                </button>
                 <button
                   onClick={() => {
-                    if (!newPropTitle || !newPropTarget || !newPropAction || !newPropDesc) {
-                      return alert("Please fill in all wizard parameters.");
-                    }
-                    const newId = `ERP-${proposals.length + 11}`;
-                    setProposals(prev => [
-                      {
-                        id: newId,
-                        title: newPropTitle,
-                        description: newPropDesc,
-                        proposer: "GBXW...GOV8",
-                        votesFor: 2500,
-                        votesAgainst: 0,
-                        hasVoted: true,
-                        status: "Active",
-                        endsIn: "5 days"
-                      },
-                      ...prev
-                    ]);
-                    setIsCreatePropModalOpen(false);
-                    setNewPropTitle("");
-                    setNewPropTarget("");
-                    setNewPropAction("");
-                    setNewPropDesc("");
-                    alert(`Proposal ${newId} initialized and registered under active validation!`);
+                    setEmodeEnabled(true);
+                    setShowEmodeConfirm(false);
+                    alert("E-Mode active on Core Pool! Your Stablecoin limits are now boosted to 90% LTV.");
                   }}
-                  className="w-full py-3.5 rounded-2xl bg-brandLime hover:bg-brandLime/90 text-brandDark font-bold text-xs tracking-wider transition-all shadow-[0_0_20px_rgba(212,255,63,0.15)] mt-2"
+                  className="flex-1 py-3.5 rounded-2xl bg-brandLime hover:bg-brandLime/90 text-brandDark font-bold text-xs"
                 >
-                  Publish Governance Proposal
+                  Confirm & Activate
                 </button>
               </div>
             </motion.div>
@@ -1743,11 +1940,270 @@ export default function ErgoDashboard() {
         )}
       </AnimatePresence>
 
+      {/* Multi-Step Proposal Creation Wizard Modal */}
+      <AnimatePresence>
+        {isCreatePropModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-end md:items-center justify-center p-0 md:p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                setIsCreatePropModalOpen(false);
+                setWizardStep(1);
+              }}
+              className="absolute inset-0 bg-black/85 backdrop-blur-md"
+            />
+
+            <motion.div
+              initial={{ opacity: 0, y: 100 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 100 }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              className="relative w-full md:max-w-md rounded-t-[2.5rem] md:rounded-[2.5rem] border border-white/5 bg-[#0e0f12]/95 overflow-hidden shadow-2xl p-6 z-10 flex flex-col gap-4 pb-12 md:pb-6"
+            >
+              {/* Close Button */}
+              <button
+                onClick={() => {
+                  setIsCreatePropModalOpen(false);
+                  setWizardStep(1);
+                }}
+                className="absolute top-6 right-6 text-brandGray hover:text-white transition-colors z-20 w-8 h-8 rounded-full bg-white/5 flex items-center justify-center border border-white/5 hover:bg-white/10"
+              >
+                <X className="size-4" />
+              </button>
+
+              <div>
+                <span className="text-[10px] uppercase tracking-widest text-[#7c3aed] font-semibold">Governance Wizard</span>
+                <h4 className="text-xl font-bold text-white mt-1">
+                  Create Proposal <span className="text-xs text-brandGray font-mono font-normal">Step {wizardStep} of 4</span>
+                </h4>
+              </div>
+
+              {/* Wizard Step 1: Select Proposal Type */}
+              {wizardStep === 1 && (
+                <div className="flex flex-col gap-3">
+                  <span className="text-[10px] font-bold text-brandGray uppercase tracking-wider block">Choose Proposal Type</span>
+                  <div className="flex flex-col gap-2 max-h-60 overflow-y-auto">
+                    {[
+                      { id: "MarketPauseResume", title: "Market Pause/Resume", desc: "Temporarily pause/resume supply & borrows.", fn: "CorePool::pause_market" },
+                      { id: "OracleCircuitBreakerOverride", title: "Oracle Override", desc: "Modify oracle price feeds aggregation source.", fn: "OracleAggregator::register_feed" },
+                      { id: "BackstopAllocationDecision", title: "Backstop Allocation", desc: "Adjust allocation ratios between pools.", fn: "Governance::set_allocation" },
+                      { id: "CompliancePermissioning", title: "Compliance Allowlist", desc: "Update RWA institutional compliance parameters.", fn: "ComplianceModule::set_allowlist" },
+                      { id: "RiskParamUpdate", title: "Risk Param Update", desc: "Update collateral factors and liability caps.", fn: "CorePool::update_market_params" },
+                    ].map((type) => (
+                      <button
+                        key={type.id}
+                        onClick={() => {
+                          setProposalType(type.id);
+                        }}
+                        className={`p-3 rounded-xl border text-left flex flex-col transition-all gap-0.5 ${
+                          proposalType === type.id ? "bg-brandPurple/10 border-[#7c3aed]/40 text-white" : "bg-white/5 border-white/5 text-brandGray hover:border-white/10"
+                        }`}
+                      >
+                        <span className="text-xs font-bold text-white">{type.title}</span>
+                        <span className="text-[10px] opacity-80">{type.desc}</span>
+                        <span className="text-[9px] font-mono text-[#7c3aed] mt-1">{type.fn}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => setWizardStep(2)}
+                    className="w-full mt-2 py-3 rounded-xl bg-brandLime text-brandDark font-bold text-xs"
+                  >
+                    Next Step
+                  </button>
+                </div>
+              )}
+
+              {/* Wizard Step 2: Parameters Form */}
+              {wizardStep === 2 && (
+                <div className="flex flex-col gap-3">
+                  <span className="text-[10px] font-bold text-brandGray uppercase tracking-wider block">Configure Parameters</span>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] text-brandGray uppercase">Proposal Title</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Increase USDC Collateral Factor to 85%"
+                      value={newPropTitle}
+                      onChange={(e) => setNewPropTitle(e.target.value)}
+                      className="w-full bg-[#14151a] border border-white/5 focus:border-[#7c3aed]/40 rounded-xl px-3 py-2 text-xs text-white outline-none"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] text-brandGray uppercase">Target Contract Address</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. CC_POOL_CONTRACT_ADDRESS"
+                      value={newPropTarget}
+                      onChange={(e) => setNewPropTarget(e.target.value)}
+                      className="w-full bg-[#14151a] border border-white/5 focus:border-[#7c3aed]/40 rounded-xl px-3 py-2 text-xs text-white outline-none font-mono"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] text-brandGray uppercase">Action Method / Parameters</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. set_collateral_factor"
+                      value={newPropAction}
+                      onChange={(e) => setNewPropAction(e.target.value)}
+                      className="w-full bg-[#14151a] border border-white/5 focus:border-[#7c3aed]/40 rounded-xl px-3 py-2 text-xs text-white outline-none font-mono"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] text-brandGray uppercase">Detailed Description</label>
+                    <textarea
+                      placeholder="Rationale behind proposed changes..."
+                      value={newPropDesc}
+                      onChange={(e) => setNewPropDesc(e.target.value)}
+                      rows={2}
+                      className="w-full bg-[#14151a] border border-white/5 focus:border-[#7c3aed]/40 rounded-xl px-3 py-2 text-xs text-white outline-none resize-none leading-relaxed"
+                    />
+                  </div>
+
+                  <div className="flex gap-3 mt-2">
+                    <button
+                      onClick={() => setWizardStep(1)}
+                      className="flex-1 py-3 rounded-xl border border-white/5 text-xs text-white hover:bg-white/5"
+                    >
+                      Back
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (!newPropTitle || !newPropTarget || !newPropAction || !newPropDesc) {
+                          return alert("Please fill in all parameter inputs.");
+                        }
+                        setWizardStep(3);
+                      }}
+                      className="flex-1 py-3 rounded-xl bg-brandLime text-brandDark font-bold text-xs"
+                    >
+                      Review payload
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Wizard Step 3: Review */}
+              {wizardStep === 3 && (
+                <div className="flex flex-col gap-3">
+                  <span className="text-[10px] font-bold text-brandGray uppercase tracking-wider block">Review Execution Payload</span>
+
+                  <div className="p-3 rounded-xl bg-white/5 border border-white/5 flex flex-col gap-2 text-[10px] font-mono leading-relaxed">
+                    <div>
+                      <span className="text-brandGray block text-[9px]">TITLE:</span>
+                      <span className="text-white">{newPropTitle}</span>
+                    </div>
+                    <div>
+                      <span className="text-brandGray block text-[9px]">TARGET ADDRESS:</span>
+                      <span className="text-white">{newPropTarget}</span>
+                    </div>
+                    <div>
+                      <span className="text-brandGray block text-[9px]">METHOD:</span>
+                      <span className="text-white">{newPropAction}</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 border-t border-white/5 pt-2 mt-1">
+                      <div>
+                        <span className="text-brandGray block text-[9px]">TIMELOCK:</span>
+                        <span className="text-amber-400 font-bold">48 Hours</span>
+                      </div>
+                      <div>
+                        <span className="text-brandGray block text-[9px]">QUORUM:</span>
+                        <span className="text-brandPurple font-bold">1,000,000 ERGO</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3 mt-2">
+                    <button
+                      onClick={() => setWizardStep(2)}
+                      className="flex-1 py-3 rounded-xl border border-white/5 text-xs text-white hover:bg-white/5"
+                    >
+                      Back
+                    </button>
+                    <button
+                      onClick={() => {
+                        setWizardStep(4);
+                        setTimeout(() => {
+                          const newId = `ERP-${proposals.length + 11}`;
+                          setProposals(prev => [
+                            {
+                              id: newId,
+                              title: newPropTitle,
+                              description: newPropDesc,
+                              proposer: "GBXW...GOV8",
+                              votesFor: 2500,
+                              votesAgainst: 0,
+                              hasVoted: true,
+                              status: "Active",
+                              endsIn: "5 days"
+                            },
+                            ...prev
+                          ]);
+                          alert(`Proposal ${newId} published on-chain successfully!`);
+                          setIsCreatePropModalOpen(false);
+                          setWizardStep(1);
+                          setNewPropTitle("");
+                          setNewPropTarget("");
+                          setNewPropAction("");
+                          setNewPropDesc("");
+                        }, 2000);
+                      }}
+                      className="flex-1 py-3 rounded-xl bg-brandLime text-brandDark font-bold text-xs"
+                    >
+                      Sign & Submit
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Wizard Step 4: Submit Loader */}
+              {wizardStep === 4 && (
+                <div className="flex flex-col items-center justify-center py-10 gap-4 text-center">
+                  <div className="size-10 rounded-full border-2 border-brandLime border-t-transparent animate-spin" />
+                  <div>
+                    <h5 className="text-sm font-bold text-white">Signing with Freighter Wallet</h5>
+                    <p className="text-xs text-brandGray mt-1">Please approve the transaction payload signature inside your wallet extension.</p>
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
       {/* Stellar Connection Dialog helper */}
       <StellarWalletModal
         isOpen={isConnectModalOpen}
         onClose={() => setIsConnectModalOpen(false)}
       />
+
+      {/* Bottom Tab Bar for Mobile */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-[#121316]/95 backdrop-blur-xl border-t border-white/5 z-50 flex items-center justify-around px-4 pb-safe">
+        {[
+          { id: "portfolio", label: "Portfolio", icon: Wallet },
+          { id: "market", label: "Markets", icon: Globe },
+          { id: "governance", label: "Governance", icon: CircleDot },
+          { id: "risk", label: "Risk", icon: Shield },
+          { id: "performance", label: "Yield", icon: TrendingUp },
+        ].map((item) => {
+          const isActive = activeSection === item.id;
+          const Icon = item.icon;
+          return (
+            <button
+              key={item.id}
+              onClick={() => setActiveSection(item.id)}
+              className="flex flex-col items-center justify-center gap-1 text-[10px] font-semibold transition-all duration-200"
+              style={{ color: isActive ? C.lime : "#9fadaa" }}
+            >
+              <Icon className="size-5" />
+              <span>{item.label}</span>
+            </button>
+          );
+        })}
+      </div>
 
     </div>
   );

@@ -76,9 +76,10 @@ export const StellarWalletProvider = ({ children }: { children: ReactNode }) => 
           const freighter = await import("@stellar/freighter-api");
           let hasFreighter = false;
           try {
-            hasFreighter = await freighter.isConnected();
+            const status = await freighter.isConnected() as any;
+            hasFreighter = typeof status === "boolean" ? status : !!status?.isConnected;
           } catch (e) {
-            hasFreighter = true; // Bypasses timing timing checks
+            hasFreighter = true; // Bypasses timing checks
           }
           
           if (!hasFreighter) {
@@ -86,7 +87,8 @@ export const StellarWalletProvider = ({ children }: { children: ReactNode }) => 
           }
           
           try {
-            address = await freighter.requestAccess();
+            const res = await freighter.requestAccess() as any;
+            address = typeof res === "string" ? res : res?.address || "";
           } catch (err: any) {
             throw new Error(err.message || "Freighter access request denied.");
           }
