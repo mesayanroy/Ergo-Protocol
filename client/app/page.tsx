@@ -14,6 +14,16 @@ const Warp = dynamic(
   { ssr: false }
 );
 
+const NeuroNoise = dynamic(
+  () => import("@paper-design/shaders-react").then((mod) => mod.NeuroNoise),
+  { ssr: false }
+);
+
+const Dithering = dynamic(
+  () => import("@paper-design/shaders-react").then((mod) => mod.Dithering),
+  { ssr: false }
+);
+
 export default function HomePage() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
@@ -28,9 +38,10 @@ export default function HomePage() {
       {/* Background radial accent glow */}
       <div className="absolute top-0 left-0 right-0 h-[600px] bg-gradient-to-b from-brandPurple/10 to-transparent pointer-events-none z-0" />
       
-      {/* Top sticky glass header */}
-      <header className="sticky top-0 z-50 w-full glass-panel border-b border-white/5 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
+      {/* Top sticky floating glass header */}
+      <div className="sticky top-4 z-50 w-full px-4 md:px-8">
+        <header className="max-w-6xl mx-auto rounded-full border border-white/10 bg-brandDark/60 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,0.5)]">
+          <div className="px-6 h-16 flex items-center justify-between">
           {/* Logo & Brand Name */}
           <div className="flex items-center gap-3">
             <div className="relative w-9 h-9 rounded-lg overflow-hidden border border-white/10 shadow-[0_0_15px_rgba(212,255,63,0.15)] flex-shrink-0 bg-brandLime">
@@ -89,7 +100,7 @@ export default function HomePage() {
 
         {/* Mobile Navigation Drawer */}
         {isMobileMenuOpen && (
-          <div className="md:hidden absolute top-20 left-0 w-full glass-panel border-b border-white/5 py-6 px-6 flex flex-col gap-4 animate-fade-in shadow-2xl z-45">
+          <div className="md:hidden absolute top-20 left-4 right-4 rounded-3xl border border-white/10 bg-brandDark/90 backdrop-blur-lg py-6 px-6 flex flex-col gap-4 animate-fade-in shadow-2xl z-45">
             <a 
               href="#about" 
               onClick={() => setIsMobileMenuOpen(false)}
@@ -150,21 +161,45 @@ export default function HomePage() {
           </div>
         )}
       </header>
+      </div>
 
       {/* Widescreen background and grid stripes layers mapped inside the section tag directly */}
 
       {/* Hero Section - Full-bleed Horizontal visual background */}
       <section className="relative z-10 min-h-[95vh] flex items-end justify-start pb-16 pt-32 overflow-hidden">
-        {/* Horizontal Background visual on the entire screen section */}
-        <div className="absolute inset-0 z-0 select-none pointer-events-none">
-          <img 
-            src="/hero-illustration-new.png" 
-            alt="Ergo Protocol Core Energy background" 
-            className="w-full h-full object-cover object-center opacity-95 filter brightness-[0.95] contrast-[1.02]"
-          />
+        {/* Horizontal Background visual on the entire screen section with Shaders */}
+        <div className="absolute inset-0 z-0 select-none bg-brandDark overflow-hidden">
+          {/* NeuroNoise shader background */}
+          <div className="absolute inset-0 z-0 w-full h-full">
+            <NeuroNoise
+              width={1280}
+              height={720}
+              colorFront="#5eff1a"
+              colorMid="#020527"
+              colorBack="#000000"
+              brightness={0.05}
+              contrast={0.3}
+              speed={1.96}
+            />
+          </div>
+          {/* Dithering shader on top */}
+          <div className="absolute inset-0 z-10 w-full h-full mix-blend-screen opacity-90">
+            <Dithering
+              width={1280}
+              height={720}
+              colorBack="#00000000"
+              colorFront="#0013e6"
+              shape="sphere"
+              type="4x4"
+              size={2}
+              speed={1}
+              scale={0.6}
+              offsetX={0.48}
+            />
+          </div>
           {/* Subtle edge fades to integrate visual boundaries with header/footer colors */}
-          <div className="absolute top-0 inset-x-0 h-24 bg-gradient-to-b from-black to-transparent pointer-events-none" />
-          <div className="absolute bottom-0 inset-x-0 h-24 bg-gradient-to-t from-black to-transparent pointer-events-none" />
+          <div className="absolute top-0 inset-x-0 h-32 bg-gradient-to-b from-brandDark via-brandDark/55 to-transparent pointer-events-none z-20" />
+          <div className="absolute bottom-0 inset-x-0 h-32 bg-gradient-to-t from-brandDark via-brandDark/55 to-transparent pointer-events-none z-20" />
         </div>
 
         {/* Content (Soothing Bottom-Left-aligned Structure) */}
