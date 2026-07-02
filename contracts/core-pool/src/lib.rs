@@ -13,6 +13,7 @@ pub mod position;
 pub mod storage;
 
 use crate::errors::Error;
+use crate::storage::PositionState;
 
 #[contract]
 pub struct CorePoolContract;

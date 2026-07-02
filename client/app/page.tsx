@@ -197,7 +197,6 @@ export default function HomePage() {
 
       {/* Widescreen background and grid stripes layers mapped inside the section tag directly */}
 
-      {/* Hero Section - Full-bleed Horizontal visual background */}
       <section className="relative z-10 min-h-[95vh] flex items-end justify-start pb-16 pt-32 overflow-hidden">
         {/* Horizontal Background visual on the entire screen section with Shaders */}
         <div className="absolute inset-0 z-0 select-none bg-brandDark overflow-hidden">

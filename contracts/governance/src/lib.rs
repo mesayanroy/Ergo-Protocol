@@ -11,7 +11,7 @@ pub mod timelock;
 pub mod voting;
 
 use crate::errors::Error;
-use crate::storage::Proposal;
+use crate::storage::{Proposal, ProposalType};
 
 #[contract]
 pub struct GovernanceContract;
@@ -49,8 +49,9 @@ impl GovernanceContract {
         creator: Address,
         target: Address,
         action: Symbol,
+        proposal_type: ProposalType,
     ) -> Result<u64, Error> {
-        let proposal = proposals::create_proposal(&env, creator, target, action)?;
+        let proposal = proposals::create_proposal(&env, creator, target, action, proposal_type)?;
         Ok(proposal.id)
     }
 
@@ -72,5 +73,18 @@ impl GovernanceContract {
     /// Queries proposal state.
     pub fn get_proposal(env: Env, proposal_id: u64) -> Result<Proposal, Error> {
         storage::get_proposal(&env, proposal_id).ok_or(Error::ProposalNotFound)
+    }
+
+    /// Distributes rewards proportional to backstop share.
+    pub fn distribute_emissions(
+        env: Env,
+        backstop: Address,
+        gov_token: Address,
+        pool_id: u32,
+        user: Address,
+        base_rewards: i128,
+    ) -> Result<(), Error> {
+        emitter::distribute_emissions(&env, backstop, gov_token, pool_id, user, base_rewards);
+        Ok(())
     }
 }

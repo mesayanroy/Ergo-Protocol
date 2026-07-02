@@ -11,6 +11,21 @@ pub struct PositionState {
     pub delegated: i128,
 }
 
+#[soroban_sdk::contracttype]
+#[derive(Clone, Debug)]
+pub struct MarketConfig {
+    pub active: bool,
+    pub permissioned: bool,
+    pub debt_ceiling: i128,
+    pub pool_type: u32,
+    pub asset: Address,
+    pub collateral_factor: u32,
+    pub liquidation_threshold: u32,
+    pub emode_category: u32,
+    pub total_supplied: i128,
+    pub total_borrowed: i128,
+}
+
 /// Creates liquidation auction for an unhealthy position.
 pub fn create_liquidation_auction(
     env: &Env,

@@ -1,4 +1,4 @@
-use soroban_sdk::{Address, Env, Symbol};
+use soroban_sdk::{Address, Env, Symbol, IntoVal};
 
 use crate::errors::Error;
 use crate::storage;

@@ -11,6 +11,14 @@ pub fn vote(env: &Env, voter: Address, proposal_id: u64, support: bool) -> Resul
     if env.ledger().timestamp() >= proposal.end_time {
         return Err(Error::VotingClosed);
     }
+    if proposal.status != 0 {
+        return Err(Error::VotingClosed);
+    }
+
+    // Check if voter has already voted on this proposal
+    if storage::has_voted(env, proposal_id, voter.clone()) {
+        return Err(Error::AlreadyVoted);
+    }
 
     let weight: i128 = 100; // Mock voting power weight
     if support {
@@ -19,6 +27,7 @@ pub fn vote(env: &Env, voter: Address, proposal_id: u64, support: bool) -> Resul
         proposal.votes_against = proposal.votes_against.saturating_add(weight);
     }
 
+    storage::set_voted(env, proposal_id, voter.clone());
     storage::set_proposal(env, proposal_id, &proposal);
     env.events().publish((Symbol::new(env, "VoteCast"), proposal_id, voter), support);
     Ok(())

@@ -25,3 +25,7 @@ pub fn register_feed(env: &Env, governance: Address, asset: Symbol, feed: Addres
     storage::set_feeds(env, asset, &feeds);
     Ok(())
 }
+
+pub fn list_feeds(env: &Env, asset: Symbol) -> Vec<Address> {
+    storage::get_feeds(env, asset)
+}

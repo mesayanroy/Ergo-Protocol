@@ -5,32 +5,24 @@ use crate::storage;
 use crate::timelock;
 use crate::emitter;
 
-/// Executes Only whitelisted proposal actions.
+/// Executes whitelisted proposal actions after timelock expires.
 pub fn execute_proposal(env: &Env, proposal_id: u64) -> Result<(), Error> {
     let mut proposal = storage::get_proposal(env, proposal_id).ok_or(Error::ProposalNotFound)?;
-    if proposal.executed {
-        return Err(Error::ProposalNotFound);
+    if proposal.executed || proposal.status == 2 {
+        return Err(Error::AlreadyExecuted);
     }
 
-    if env.ledger().timestamp() < proposal.end_time {
-        return Err(Error::VotingClosed);
-    }
-
-    if proposal.votes_for <= proposal.votes_against {
+    if proposal.status != 1 {
         return Err(Error::InvalidAction);
     }
 
     // Check if target is whitelisted
     if !storage::is_whitelisted(env, proposal.target.clone()) {
-        return Err(Error::Unauthorized);
+        return Err(Error::NotWhitelisted);
     }
 
-    // Check timelock
-    let delay_ledgers = timelock::timelock_for(proposal.action.clone());
-    let delay_seconds = (delay_ledgers as u64).saturating_mul(5);
-    let min_eta = proposal.end_time.saturating_add(delay_seconds);
-
-    if env.ledger().timestamp() < min_eta {
+    // Check timelock expiration sequence
+    if env.ledger().sequence() < proposal.eta as u32 {
         return Err(Error::TimelockActive);
     }
 
@@ -42,6 +34,7 @@ pub fn execute_proposal(env: &Env, proposal_id: u64) -> Result<(), Error> {
     );
 
     proposal.executed = true;
+    proposal.status = 2; // Executed
     storage::set_proposal(env, proposal_id, &proposal);
 
     emitter::emit_action(env, proposal.action);

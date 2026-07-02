@@ -76,4 +76,9 @@ impl LiquidationEngineContract {
     pub fn get_auction(env: Env, auction_id: u32) -> Result<Auction, Error> {
         storage::get_auction(&env, auction_id).ok_or(Error::AuctionNotFound)
     }
+
+    /// Flash loan callback handler.
+    pub fn execute_op(env: Env, pool: Address, amount: i128) -> Result<(), Error> {
+        fill::execute_op(&env, pool, amount)
+    }
 }

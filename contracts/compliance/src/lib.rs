@@ -39,15 +39,14 @@ impl ComplianceContract {
         permissioned_market::flag_market_permissioned(&env, governance, market_id, permissioned)
     }
 
-    /// Configures allowance status for a user.
-    pub fn set_allowed(
+    /// Configures allowance status for a user under issuer authorization.
+    pub fn add_to_allowlist(
         env: Env,
-        admin: Address,
         market_id: Symbol,
         user: Address,
         allowed: bool,
     ) -> Result<(), Error> {
-        permissioned_market::set_allowed(&env, admin, market_id, user, allowed)
+        permissioned_market::add_to_allowlist(&env, market_id, user, allowed)
     }
 
     /// Configures issuer address for a market.

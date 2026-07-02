@@ -1,4 +1,4 @@
-use soroban_sdk::{token, Address, Env, Symbol};
+use soroban_sdk::{token, Address, Env, Symbol, IntoVal};
 
 use crate::errors::Error;
 use crate::health_factor;

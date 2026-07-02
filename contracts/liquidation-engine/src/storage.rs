@@ -16,6 +16,13 @@ pub struct Auction {
 
 #[derive(Clone)]
 #[contracttype]
+pub struct FlashContext {
+    pub filler: Address,
+    pub auction_id: u32,
+}
+
+#[derive(Clone)]
+#[contracttype]
 pub enum DataKey {
     Admin,
     CorePool,
@@ -23,6 +30,15 @@ pub enum DataKey {
     BaseAsset,
     AuctionCount,
     Auction(u32),
+    FlashContextKey,
+}
+
+pub fn set_flash_context(env: &Env, ctx: &FlashContext) {
+    env.storage().instance().set(&DataKey::FlashContextKey, ctx);
+}
+
+pub fn get_flash_context(env: &Env) -> Option<FlashContext> {
+    env.storage().instance().get(&DataKey::FlashContextKey)
 }
 
 pub fn set_admin(env: &Env, admin: &Address) {

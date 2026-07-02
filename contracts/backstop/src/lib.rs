@@ -60,4 +60,19 @@ impl BackstopContract {
     pub fn set_allocation(env: Env, pool_id: u32, weight_bps: u32) -> Result<(), Error> {
         emissions::set_allocation(&env, pool_id, weight_bps)
     }
+
+    /// Calculates share percentage of a user in a pool proportional to total deposit.
+    pub fn calculate_share(env: Env, pool_id: u32, user: Address) -> Result<i128, Error> {
+        emissions::calculate_share(&env, pool_id, user)
+    }
+
+    /// Gets the current pool balance for namespaced assets.
+    pub fn get_pool_balance(env: Env, pool_id: u32) -> i128 {
+        storage::get_pool_balance(&env, pool_id)
+    }
+
+    /// Gets a user's deposited balance in a pool.
+    pub fn get_user_balance(env: Env, pool_id: u32, user: Address) -> i128 {
+        storage::get_user_balance(&env, pool_id, user)
+    }
 }

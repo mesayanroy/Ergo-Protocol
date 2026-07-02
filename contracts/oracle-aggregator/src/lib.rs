@@ -48,4 +48,19 @@ impl OracleAggregatorContract {
     pub fn override_with_new_feeds(env: Env, governance: Address, asset: Symbol, feeds: Vec<Address>) -> Result<(), Error> {
         circuit_breaker::override_with_new_feeds(&env, governance, asset, feeds)
     }
+
+    /// Exposes is_tripped status for an asset.
+    pub fn is_tripped(env: Env, asset: Symbol) -> bool {
+        storage::is_tripped(&env, asset)
+    }
+
+    /// Lists registered feeds for an asset.
+    pub fn list_feeds(env: Env, asset: Symbol) -> Vec<Address> {
+        feeds::list_feeds(&env, asset)
+    }
+
+    /// Gets cached last good price for an asset.
+    pub fn get_last_good_price(env: Env, asset: Symbol) -> i128 {
+        storage::get_last_good_price(&env, asset)
+    }
 }
