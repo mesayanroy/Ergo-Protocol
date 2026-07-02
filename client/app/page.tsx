@@ -34,9 +34,41 @@ export default function HomePage() {
 
 
   return (
-    <div className="min-h-screen relative bg-brandDark text-foreground selection:bg-brandLime selection:text-brandDark">
-      {/* Background radial accent glow */}
-      <div className="absolute top-0 left-0 right-0 h-[600px] bg-gradient-to-b from-brandPurple/10 to-transparent pointer-events-none z-0" />
+    <div className="min-h-screen relative bg-brandDark text-foreground selection:bg-brandLime selection:text-brandDark overflow-x-hidden">
+      
+      {/* Horizontal Background visual on the entire screen section with Shaders */}
+      <div className="absolute top-0 inset-x-0 h-[100vh] z-0 select-none bg-brandDark overflow-hidden pointer-events-none">
+        {/* NeuroNoise shader background */}
+        <div className="absolute inset-0 z-0 w-full h-full">
+          <NeuroNoise
+            width={1280}
+            height={720}
+            colorFront="#5eff1a"
+            colorMid="#020527"
+            colorBack="#000000"
+            brightness={0.05}
+            contrast={0.3}
+            speed={1.96}
+          />
+        </div>
+        {/* Dithering shader on top */}
+        <div className="absolute inset-0 z-10 w-full h-full mix-blend-screen opacity-90">
+          <Dithering
+            width={1280}
+            height={720}
+            colorBack="#00000000"
+            colorFront="#0013e6"
+            shape="sphere"
+            type="4x4"
+            size={2}
+            speed={1}
+            scale={0.6}
+            offsetX={0.48}
+          />
+        </div>
+        {/* Subtle edge fades to integrate visual boundaries with header/footer colors */}
+        <div className="absolute bottom-0 inset-x-0 h-32 bg-gradient-to-t from-brandDark via-brandDark/55 to-transparent pointer-events-none z-20" />
+      </div>
       
       {/* Top sticky floating glass header */}
       <div className="sticky top-4 z-50 w-full px-4 md:px-8">
@@ -172,8 +204,8 @@ export default function HomePage() {
           {/* NeuroNoise shader background */}
           <div className="absolute inset-0 z-0 w-full h-full">
             <NeuroNoise
-              width={1280}
-              height={720}
+              width={2550}
+              height={1720}
               colorFront="#5eff1a"
               colorMid="#020527"
               colorBack="#000000"
@@ -185,12 +217,12 @@ export default function HomePage() {
           {/* Dithering shader on top */}
           <div className="absolute inset-0 z-10 w-full h-full mix-blend-screen opacity-90">
             <Dithering
-              width={1280}
+              width={1200}
               height={720}
               colorBack="#00000000"
-              colorFront="#0013e6"
+              colorFront="#5b06f8fb"
               shape="sphere"
-              type="4x4"
+              type="8x8"
               size={2}
               speed={1}
               scale={0.6}
@@ -214,7 +246,7 @@ export default function HomePage() {
             {/* Title - Mix of Instrument Sans-Serif and Calligraphy Italics */}
             <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl tracking-tight leading-tight mb-5 drop-shadow-[0_4px_20px_rgba(0,0,0,0.98)]">
               <span className="font-sans font-bold text-white">Shared Liquidity.</span> <br />
-              <span className="font-serif italic font-normal text-transparent bg-clip-text bg-gradient-to-r from-white via-brandLime to-brandLime/90 tracking-wide">Engineered for Stellar.</span>
+              <span className="font-serif italic font-normal text-transparent bg-clip-text bg-gradient-to-r from-white via-brandLime to-brandLime/90 tracking-wide">Lending Protocol on Stellar.</span>
             </h1>
 
             {/* Description */}
