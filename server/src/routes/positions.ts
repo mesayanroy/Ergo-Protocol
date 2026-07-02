@@ -1,17 +1,43 @@
 import { Router, Response } from 'express';
-import { verifySep10Auth, AuthenticatedRequest } from '../middleware/sep10.js';
 import { db } from '../db/index.js';
+import { getLivePosition, getLiveHealthFactor } from '../services/stellar.js';
 
 const router = Router();
 
-router.get('/', verifySep10Auth, async (req: AuthenticatedRequest, res: Response) => {
-  const user = req.userAddress!;
+router.get('/:address', async (req, res: Response) => {
+  const address = req.params.address;
   try {
-    let positions = await db.getPositions(user);
+    let positions = await db.getPositions(address);
+    
+    const xlmLive = await getLivePosition(address, 'XLM');
+    const usdcLive = await getLivePosition(address, 'USDC');
+    const liveHf = await getLiveHealthFactor(address);
+
+    if (xlmLive || usdcLive) {
+      positions = [
+        {
+          user_address: address,
+          market_symbol: 'XLM',
+          supplied: Number(xlmLive?.supplied || 0),
+          borrowed: Number(xlmLive?.borrowed || 0),
+          delegated: Number(xlmLive?.delegated || 0),
+          health_factor: liveHf,
+        },
+        {
+          user_address: address,
+          market_symbol: 'USDC',
+          supplied: Number(usdcLive?.supplied || 0),
+          borrowed: Number(usdcLive?.borrowed || 0),
+          delegated: Number(usdcLive?.delegated || 0),
+          health_factor: liveHf,
+        }
+      ];
+    }
+
     if (positions.length === 0) {
       positions = [
         {
-          user_address: user,
+          user_address: address,
           market_symbol: "USDC",
           supplied: 1500,
           borrowed: 0,
@@ -19,7 +45,7 @@ router.get('/', verifySep10Auth, async (req: AuthenticatedRequest, res: Response
           health_factor: 999999,
         },
         {
-          user_address: user,
+          user_address: address,
           market_symbol: "XLM",
           supplied: 10000,
           borrowed: 1200,
@@ -27,30 +53,22 @@ router.get('/', verifySep10Auth, async (req: AuthenticatedRequest, res: Response
           health_factor: 1.84,
         },
       ];
-      for (const pos of positions) {
-        await db.upsertPosition(pos);
-      }
     }
+    
     return res.json(positions);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
 });
 
-router.post('/update', verifySep10Auth, async (req: AuthenticatedRequest, res: Response) => {
-  const user = req.userAddress!;
-  const { market_symbol, supplied, borrowed, delegated, health_factor } = req.body;
+router.get('/:address/history', async (req, res: Response) => {
+  const address = req.params.address;
   try {
-    const pos = {
-      user_address: user,
-      market_symbol,
-      supplied: Number(supplied || 0),
-      borrowed: Number(borrowed || 0),
-      delegated: Number(delegated || 0),
-      health_factor: Number(health_factor || 999999),
-    };
-    await db.upsertPosition(pos);
-    return res.json({ success: true, position: pos });
+    const txs = await db.query(
+      "SELECT * FROM transactions WHERE user_address = $1 ORDER BY created_at DESC",
+      [address]
+    );
+    return res.json(txs.rows);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
