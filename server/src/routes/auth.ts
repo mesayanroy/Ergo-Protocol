@@ -6,8 +6,12 @@ dotenv.config();
 
 const router = Router();
 
-const serverSigningSecret = process.env.SEP10_SIGNING_KEY || 'SAI52RPAJAGGLXRL5WUTXQSM7F76K5L5IJV3D3R6K2Q37U2U3J5J3HHY'; // random fallback
-const serverKeypair = Keypair.fromSecret(serverSigningSecret);
+let serverKeypair: Keypair;
+try {
+  serverKeypair = Keypair.fromSecret(process.env.SEP10_SIGNING_KEY || '');
+} catch (e) {
+  serverKeypair = Keypair.random();
+}
 const jwtSecret = process.env.JWT_SECRET || 'ergo_super_secret_jwt_key';
 
 router.post('/challenge', async (req, res: Response) => {
