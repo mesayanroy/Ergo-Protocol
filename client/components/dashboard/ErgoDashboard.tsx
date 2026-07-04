@@ -459,6 +459,12 @@ export default function ErgoDashboard() {
       wbtc: 64200.0,
       weth: 3450.0,
       ergo: 0.50,
+      xlm_shared: 0.12,
+      usdc_shared: 1.00,
+      eurc_shared: 1.08,
+      wbtc_satellite: 64200.0,
+      weth_satellite: 3450.0,
+      ergo_satellite: 0.50,
     };
     Object.keys(storePrices).forEach(k => {
       p[k.toLowerCase()] = storePrices[k].median;
@@ -1284,39 +1290,65 @@ export default function ErgoDashboard() {
                         <h4 className="text-sm font-bold text-white">Collateral Allocation</h4>
                         <p className="text-[10px] text-brandGray mt-0.5">Asset shares inside non-custodial lockup</p>
                       </div>
-                      <div className="h-44 flex items-center justify-center mt-4">
+                      <div className="h-44 flex items-center justify-center mt-4 relative">
+                        <div className="absolute flex flex-col items-center justify-center pointer-events-none">
+                          <span className="text-[9px] uppercase tracking-wider text-brandGray font-bold">Lockup TVL</span>
+                          <span className="text-base font-bold font-mono text-white mt-0.5">
+                            ${totals.suppliedUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
                         <ResponsiveContainer width="100%" height="100%">
                           <PieChart>
                             <Pie
                               data={assetPools.filter(p => p.supplied > 0).map(p => ({
                                 name: p.symbol,
-                                value: p.supplied * prices[p.id],
+                                value: p.supplied * (prices[p.id] || 1),
                               }))}
                               cx="50%"
                               cy="50%"
-                              innerRadius="50%"
-                              outerRadius="75%"
-                              paddingAngle={5}
+                              innerRadius="58%"
+                              outerRadius="78%"
+                              paddingAngle={4}
+                              cornerRadius={5}
+                              startAngle={90}
+                              endAngle={450}
                               dataKey="value"
                               stroke="none"
+                              isAnimationActive={true}
                             >
-                              <Cell fill={C.lime} />
-                              <Cell fill={C.purple} />
-                              <Cell fill="#f5f5f2" />
+                              {assetPools.filter(p => p.supplied > 0).map((p, index) => {
+                                const symbolLower = p.symbol.toLowerCase();
+                                const color = symbolLower.includes("usdc") ? "#2775ca"
+                                  : symbolLower.includes("xlm") ? C.lime
+                                  : symbolLower.includes("eurc") ? "#0052b4"
+                                  : symbolLower.includes("wbtc") ? "#f7931a"
+                                  : symbolLower.includes("weth") ? C.purple
+                                  : "#ffffff";
+                                return <Cell key={`cell-${index}`} fill={color} />;
+                              })}
                             </Pie>
                           </PieChart>
                         </ResponsiveContainer>
                       </div>
                       <div className="flex flex-col gap-2 mt-4">
-                        {assetPools.filter(p => p.supplied > 0).map((pool, idx) => (
-                          <div key={pool.id} className="flex justify-between items-center text-xs">
-                            <div className="flex items-center gap-2">
-                              <div className="size-2.5 rounded-full" style={{ backgroundColor: idx === 0 ? C.lime : idx === 1 ? C.purple : "#f5f5f2" }} />
-                              <span className="text-brandGray">{pool.name}</span>
+                        {assetPools.filter(p => p.supplied > 0).map((pool) => {
+                          const symbolLower = pool.symbol.toLowerCase();
+                          const color = symbolLower.includes("usdc") ? "#2775ca"
+                            : symbolLower.includes("xlm") ? C.lime
+                            : symbolLower.includes("eurc") ? "#0052b4"
+                            : symbolLower.includes("wbtc") ? "#f7931a"
+                            : symbolLower.includes("weth") ? C.purple
+                            : "#ffffff";
+                          return (
+                            <div key={pool.id} className="flex justify-between items-center text-xs">
+                              <div className="flex items-center gap-2">
+                                <div className="size-2.5 rounded-full" style={{ backgroundColor: color }} />
+                                <span className="text-brandGray">{pool.name}</span>
+                              </div>
+                              <span className="font-mono text-white font-bold">{pool.supplied.toLocaleString(undefined, { maximumFractionDigits: 4 })} {pool.symbol}</span>
                             </div>
-                            <span className="font-mono text-white font-bold">{pool.supplied} {pool.symbol}</span>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
