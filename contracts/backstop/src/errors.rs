@@ -9,4 +9,5 @@ pub enum Error {
     PoolNotFound = 3,
     CooldownActive = 4,
     InsufficientFunds = 5,
+    CooldownNotMet = 6,
 }

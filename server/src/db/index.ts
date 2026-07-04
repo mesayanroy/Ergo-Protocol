@@ -19,6 +19,9 @@ export interface ProposalRecord {
   proposer: string;
   target_contract: string;
   action_name: string;
+  title: string;
+  description: string;
+  status: string;
   votes_for: number;
   votes_against: number;
   end_time: number;
@@ -55,13 +58,44 @@ memoryStore.prices.set("EURC", { asset_symbol: "EURC", price: 1.08 });
 
 memoryStore.proposals.set(1, {
   id: 1,
-  proposer: "GBX...GOV",
-  target_contract: "CCPool...XYZ",
-  action_name: "PAUSE",
-  votes_for: 15000,
-  votes_against: 450,
-  end_time: Math.floor(Date.now() / 1000) + 86400,
+  proposer: "GA5W25PPHD6UUXKLQ5K5ZRP34BR7NSJJLSS76NHH273QVA5XLM4",
+  target_contract: "CCTXZNKEDNDA3ZGL6TQV2TSGNJ6HLUQCWXGIA6NOFKT53VESNDIYJRQH",
+  action_name: "set_collateral_factor",
+  title: "Increase XLM Collateral Factor to 70%",
+  description: "Upgrade the risk parameters of the XLM liquidity pool based on decreased volatility limits.",
+  status: "Active",
+  votes_for: 1245000,
+  votes_against: 421000,
+  end_time: Math.floor(Date.now() / 1000) + 172800,
   executed: false,
+});
+
+memoryStore.proposals.set(2, {
+  id: 2,
+  proposer: "GB3KUSDC5NTCQZUV33M2QT6RKLQ5K5ZRP34BR7NSJJLSS76NHH273QVA5",
+  target_contract: "CBGN37EGC2VTOTROLR72BGCXEBZF2JGVHPPPN36IFKLVXBQLY3SXST6E",
+  action_name: "deploy_vault",
+  title: "Integrate EURC Dutch Liquidity Vault",
+  description: "Deploy automated Dutch auction settlement smart contracts for non-custodial EURC liquidation.",
+  status: "Active",
+  votes_for: 2840000,
+  votes_against: 95000,
+  end_time: Math.floor(Date.now() / 1000) + 345600,
+  executed: false,
+});
+
+memoryStore.proposals.set(3, {
+  id: 3,
+  proposer: "GC9QERGOOSX3JTEOHRSCKC3WWUOB4ZHOCEUXKI3NE6MU3XYDYSZVCX57",
+  target_contract: "CDDA6FMHKC7Q6FY3D6HGTV273BKX7XJO5UHKFXDGN7VA6CDXGGFF7QPR",
+  action_name: "upgrade_oracle",
+  title: "Enable Soroban Oracle Multi-Feed Circuit Breaker",
+  description: "Upgrade protocol price queries to fetch aggregated Reflector and DEX TWAP averages.",
+  status: "Executed",
+  votes_for: 4890000,
+  votes_against: 12000,
+  end_time: Math.floor(Date.now() / 1000) - 86400,
+  executed: true,
 });
 
 let pool: any = null;
@@ -160,14 +194,25 @@ export const db = {
     memoryStore.proposals.set(prop.id, { ...prop, updated_at: new Date() });
     if (pool) {
       await pool.query(
-        `INSERT INTO proposals (id, proposer, target_contract, action_name, votes_for, votes_against, end_time, executed, updated_at) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW()) 
-         ON CONFLICT (id) DO UPDATE SET 
+        `INSERT INTO proposals (proposal_id, proposal_type, title, description, proposer, status, votes_for, votes_against, voting_ends_at, executed_at) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TO_TIMESTAMP($9), $10) 
+         ON CONFLICT (proposal_id) DO UPDATE SET 
             votes_for = EXCLUDED.votes_for, 
             votes_against = EXCLUDED.votes_against, 
-            executed = EXCLUDED.executed, 
-            updated_at = NOW()`,
-        [prop.id, prop.proposer, prop.target_contract, prop.action_name, prop.votes_for, prop.votes_against, prop.end_time, prop.executed]
+            status = EXCLUDED.status,
+            executed_at = EXCLUDED.executed_at`,
+        [
+          prop.id, 
+          prop.action_name, 
+          prop.title, 
+          prop.description, 
+          prop.proposer, 
+          prop.status, 
+          prop.votes_for, 
+          prop.votes_against, 
+          prop.end_time, 
+          prop.executed ? new Date() : null
+        ]
       );
     }
   },
@@ -176,18 +221,21 @@ export const db = {
     const mem = memoryStore.proposals.get(id);
     if (mem) return mem;
     if (pool) {
-      const res = await pool.query("SELECT * FROM proposals WHERE id = $1", [id]);
+      const res = await pool.query("SELECT * FROM proposals WHERE proposal_id = $1", [id]);
       if (res.rows.length > 0) {
         const row = res.rows[0];
         const record: ProposalRecord = {
-          id: Number(row.id),
+          id: Number(row.proposal_id),
           proposer: row.proposer,
-          target_contract: row.target_contract,
-          action_name: row.action_name,
-          votes_for: Number(row.votes_for),
-          votes_against: Number(row.votes_against),
-          end_time: Number(row.end_time),
-          executed: row.executed,
+          target_contract: "",
+          action_name: row.proposal_type || "",
+          title: row.title || "",
+          description: row.description || "",
+          status: row.status || "Active",
+          votes_for: Number(row.votes_for || 0),
+          votes_against: Number(row.votes_against || 0),
+          end_time: Math.floor(new Date(row.voting_ends_at || Date.now()).getTime() / 1000),
+          executed: row.status === 'executed',
         };
         memoryStore.proposals.set(id, record);
         return record;
@@ -198,16 +246,19 @@ export const db = {
 
   async getAllProposals(): Promise<ProposalRecord[]> {
     if (pool) {
-      const res = await pool.query("SELECT * FROM proposals ORDER BY id DESC");
+      const res = await pool.query("SELECT * FROM proposals ORDER BY proposal_id DESC");
       return res.rows.map((row: any) => ({
-        id: Number(row.id),
+        id: Number(row.proposal_id),
         proposer: row.proposer,
-        target_contract: row.target_contract,
-        action_name: row.action_name,
-        votes_for: Number(row.votes_for),
-        votes_against: Number(row.votes_against),
-        end_time: Number(row.end_time),
-        executed: row.executed,
+        target_contract: "",
+        action_name: row.proposal_type || "",
+        title: row.title || "",
+        description: row.description || "",
+        status: row.status || "Active",
+        votes_for: Number(row.votes_for || 0),
+        votes_against: Number(row.votes_against || 0),
+        end_time: Math.floor(new Date(row.voting_ends_at || Date.now()).getTime() / 1000),
+        executed: row.status === 'executed',
       }));
     }
     return Array.from(memoryStore.proposals.values());

@@ -9,6 +9,7 @@ import backstopRouter from './backstop.js';
 import protocolRouter from './protocol.js';
 import authRouter from './auth.js';
 import complianceRouter from './compliance.js';
+import faucetRouter from './faucet.js';
 
 const router = Router();
 
@@ -22,5 +23,6 @@ router.use('/backstop', backstopRouter);
 router.use('/protocol', protocolRouter);
 router.use('/auth', authRouter);
 router.use('/compliance', complianceRouter);
+router.use('/faucet', faucetRouter);
 
 export default router;

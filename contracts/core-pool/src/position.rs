@@ -182,7 +182,7 @@ pub fn liquidate_position(
     let actual_repay = if repay_amount > debt_pos.borrowed { debt_pos.borrowed } else { repay_amount };
     debt_pos.borrowed = debt_pos.borrowed - actual_repay;
     debt_config.total_borrowed = debt_config.total_borrowed - actual_repay;
-    storage::set_position(env, debt_market, borrower.clone(), &debt_pos);
+    storage::set_position(env, debt_market.clone(), borrower.clone(), &debt_pos);
     storage::set_market_config(env, debt_market, &debt_config);
 
     let mut col_pos = storage::get_position(env, collateral_market.clone(), borrower.clone());
@@ -191,7 +191,7 @@ pub fn liquidate_position(
     let actual_reward = if collateral_reward > col_pos.supplied { col_pos.supplied } else { collateral_reward };
     col_pos.supplied = col_pos.supplied - actual_reward;
     col_config.total_supplied = col_config.total_supplied - actual_reward;
-    storage::set_position(env, collateral_market, borrower, &col_pos);
+    storage::set_position(env, collateral_market.clone(), borrower, &col_pos);
     storage::set_market_config(env, collateral_market, &col_config);
 
     // Transfer repay_amount of debt token from liquidator to Core Pool

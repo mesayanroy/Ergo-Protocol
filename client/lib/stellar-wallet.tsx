@@ -1,5 +1,6 @@
 "use client";
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { Horizon, Networks, TransactionBuilder, Operation, Asset } from "@stellar/stellar-sdk";
 
 export interface WalletInfo {
   id: string;
@@ -18,6 +19,8 @@ interface StellarWalletContextType {
   connectWallet: (id: string) => Promise<boolean>;
   disconnect: () => void;
   isWalletInstalled: (id: string) => boolean;
+  signTransaction: (xdr: string) => Promise<string>;
+  addTrustline: (assetCode: string, contractId: string) => Promise<string>;
 }
 
 const StellarWalletContext = createContext<StellarWalletContextType | undefined>(undefined);
@@ -188,6 +191,54 @@ export const StellarWalletProvider = ({ children }: { children: ReactNode }) => 
     localStorage.removeItem("ergo_wallet_address");
   };
 
+  const signTransaction = async (xdr: string): Promise<string> => {
+    if (!walletProvider) throw new Error("Wallet not connected");
+    const providerId = walletProvider.toLowerCase();
+    
+    if (providerId === "freighter") {
+      const freighter = await import("@stellar/freighter-api");
+      const res = await freighter.signTransaction(xdr, { networkPassphrase: 'Test SDF Network ; September 2015' } as any) as any;
+      return res.signedTxXdr || res;
+    }
+    
+    if (providerId === "albedo") {
+      const albedo = (await import("@albedo-link/intent")).default;
+      const res = await albedo.tx({ xdr });
+      return res.signed_envelope_xdr;
+    }
+
+    if (providerId === "xbull") {
+      const xbull = (window as any).xBullSDK;
+      return await xbull.signTransaction(xdr);
+    }
+    
+    if (providerId === "demo wallet") {
+      return xdr;
+    }
+
+    throw new Error(`Transaction signing not supported for provider: ${walletProvider}`);
+  };
+
+  // Add trustline for contract‑based assets
+  const addTrustline = async (assetCode: string, contractId: string): Promise<string> => {
+    if (!walletAddress) throw new Error('Wallet not connected');
+    const horizon = new Horizon.Server('https://horizon-testnet.stellar.org');
+    const account = await horizon.loadAccount(walletAddress);
+    const asset = new Asset(assetCode, contractId);
+    const tx = new TransactionBuilder(account, {
+      fee: '100',
+      networkPassphrase: Networks.TESTNET,
+    })
+      .addOperation(Operation.changeTrust({ asset }))
+      .setTimeout(30)
+      .build();
+    // Sign using existing provider method
+    const xdr = tx.toXDR();
+    const signedXdr = await signTransaction(xdr);
+    const result = await horizon.submitTransaction(TransactionBuilder.fromXDR(signedXdr, Networks.TESTNET));
+    return result.hash;
+  };
+
   return (
     <StellarWalletContext.Provider
       value={{
@@ -198,6 +249,8 @@ export const StellarWalletProvider = ({ children }: { children: ReactNode }) => 
         connectWallet,
         disconnect,
         isWalletInstalled,
+        signTransaction,
+        addTrustline,
       }}
     >
       {children}

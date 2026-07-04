@@ -21,7 +21,7 @@ pub fn get_feeds(env: &Env, asset: Symbol) -> Vec<Address> {
     env.storage()
         .persistent()
         .get(&DataKey::Feeds(asset))
-        .unwrap_or_else(|_| Vec::new(env))
+        .unwrap_or_else(|| Vec::new(env))
 }
 
 pub fn set_feeds(env: &Env, asset: Symbol, feeds: &Vec<Address>) {

@@ -24,13 +24,13 @@ pub fn get_user_health_factor(
         let config = storage::get_market_config(env, market_id.clone()).ok_or(Error::MarketNotFound)?;
         
         // Invoke oracle contract to fetch latest price
-        let price: i128 = match env.try_invoke_contract::<i128>(
+        let price: i128 = match env.try_invoke_contract::<i128, soroban_sdk::Error>(
             &oracle_addr,
             &Symbol::new(env, "get_price"),
             soroban_sdk::vec![env, market_id.clone().into_val(env)],
         ) {
-            Ok(price) => price,
-            Err(_) => return Err(Error::OracleCircuitBreakerActive),
+            Ok(Ok(price)) => price,
+            _ => return Err(Error::OracleCircuitBreakerActive),
         };
 
         if price <= 0 {

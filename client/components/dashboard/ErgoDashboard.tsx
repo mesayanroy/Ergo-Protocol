@@ -3,6 +3,14 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useStellarWallet } from "../../lib/stellar-wallet";
 import { StellarWalletModal } from "../StellarWalletModal";
+import { useErgoStore } from "../../lib/store";
+import { buildSupplyTx, buildBorrowTx, buildRepayTx, buildWithdrawTx, simulateTransactionImpact, buildBackstopDepositTx, buildBackstopWithdrawTx, buildApproveTx } from "../../lib/transactions";
+import { getWalletBalance } from "../../lib/positions";
+import { getLivePrice } from "../../lib/oracle";
+import { server, NETWORK_PASSPHRASE, simulateContractCall } from "../../lib/rpc";
+import { TransactionBuilder, Horizon, Operation, Asset, Address, nativeToScVal, scValToNative } from "@stellar/stellar-sdk";
+import { TransactionOverview } from "../TransactionOverview";
+import { IRMChart } from "../IRMChart";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Wallet, Globe, TrendingUp, Shield, ArrowLeftRight, CircleDot, UserCog,
@@ -32,6 +40,13 @@ const C = {
   card: "#121316",
   border: "rgba(255, 255, 255, 0.05)",
   grid: "rgba(255, 255, 255, 0.02)",
+};
+
+const renderAssetLogo = (logo: string, sizeClass = "size-6", textFallbackClass = "text-lg") => {
+  if (logo && (logo.startsWith("/") || logo.endsWith(".png"))) {
+    return <img src={logo} alt="logo" className={`${sizeClass} object-contain rounded-full`} />;
+  }
+  return <span className={textFallbackClass}>{logo || "🪙"}</span>;
 };
 
 function KpiCard({
@@ -72,6 +87,80 @@ function KpiCard({
   );
 }
 
+function FaucetItem({ item, walletAddress }: { item: any; walletAddress: string | null }) {
+  const [faucetLoading, setFaucetLoading] = useState(false);
+  const { addTrustline, signTransaction } = useStellarWallet();
+
+  const handleFaucetRequest = async () => {
+    if (!walletAddress) {
+      alert("Please connect wallet first");
+      return;
+    }
+    setFaucetLoading(true);
+    try {
+      if (item.symbol === "XLM") {
+        console.log("Funding address via Friendbot");
+        const res = await fetch(`https://friendbot.stellar.org/?addr=${walletAddress}`);
+        if (!res.ok) throw new Error("Friendbot rate limited or failed.");
+      } else {
+        const issuer = 
+          item.symbol === "USDC" ? (process.env.NEXT_PUBLIC_USDC_ISSUER || "GCLYB6KF54YF6J5QVBJXW3TBU634GZ5X45CWHKGL5Y42VSXD2OBOIWBL") :
+          item.symbol === "EURC" ? (process.env.NEXT_PUBLIC_EURC_ISSUER || "GCLYB6KF54YF6J5QVBJXW3TBU634GZ5X45CWHKGL5Y42VSXD2OBOIWBL") :
+          item.symbol === "wBTC" ? (process.env.NEXT_PUBLIC_WBTC_ISSUER || "GCLYB6KF54YF6J5QVBJXW3TBU634GZ5X45CWHKGL5Y42VSXD2OBOIWBL") :
+          item.symbol === "wETH" ? (process.env.NEXT_PUBLIC_WETH_ISSUER || "GCLYB6KF54YF6J5QVBJXW3TBU634GZ5X45CWHKGL5Y42VSXD2OBOIWBL") :
+          item.symbol === "ERGO" ? (process.env.NEXT_PUBLIC_ERGO_ISSUER || "GCLYB6KF54YF6J5QVBJXW3TBU634GZ5X45CWHKGL5Y42VSXD2OBOIWBL") :
+          "GCLYB6KF54YF6J5QVBJXW3TBU634GZ5X45CWHKGL5Y42VSXD2OBOIWBL";
+
+        console.log(`Prompting trustline signature for ${item.symbol} issued by ${issuer}`);
+        await addTrustline(item.symbol, issuer);
+
+        const response = await fetch("/api/faucet", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            address: walletAddress,
+            assetCode: item.symbol,
+            contractId: issuer,
+            amount: item.amount.split(" ")[0].replace(/,/g, "")
+          })
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(errorText || `Faucet request failed with status ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (data.error) {
+          throw new Error(data.error);
+        }
+      }
+      alert(`Success! Requested ${item.amount} sent to your address.`);
+    } catch (err: any) {
+      alert(`Faucet error: ${err.message || "Failed to process faucet request."}`);
+    } finally {
+      setFaucetLoading(false);
+    }
+  };
+
+  return (
+    <div className="p-4 rounded-xl bg-white/5 border border-white/5 flex justify-between items-center">
+      <div>
+        <span className="text-xs font-bold text-white font-mono">{item.symbol}</span>
+        <p className="text-[10px] text-brandGray">{item.name}</p>
+        <span className="text-[10px] text-brandLime font-mono">{item.amount} limit</span>
+      </div>
+      <button
+        disabled={faucetLoading}
+        onClick={handleFaucetRequest}
+        className="px-4 py-2 rounded-xl bg-brandLime text-brandDark font-bold text-xs disabled:opacity-50"
+      >
+        {faucetLoading ? "Requesting..." : "Request"}
+      </button>
+    </div>
+  );
+}
+
 interface AssetPool {
   id: string;
   name: string;
@@ -89,72 +178,80 @@ interface AssetPool {
 }
 
 export default function ErgoDashboard() {
-  const { walletAddress, walletProvider, disconnect, connectWallet } = useStellarWallet();
-  
+  const { walletAddress, walletProvider, disconnect, connectWallet, signTransaction, addTrustline } = useStellarWallet();
+  const {
+    markets,
+    userPositions,
+    healthFactor: storeHealthFactor,
+    borrowCapacity: storeBorrowCapacity,
+    netApy: storeNetApy,
+    prices: storePrices,
+    refreshMarkets,
+    refreshPositions,
+    refreshPrices,
+    setWallet,
+    clearWallet
+  } = useErgoStore();
+
   // Hydration state
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  // Fetch live balance from Horizon API
+  // Synchronize store data
   useEffect(() => {
-    if (!walletAddress || !mounted) return;
-    
-    // Skip if it's the static simulated addresses
-    if (walletAddress.startsWith("GBDEMO") || walletAddress.startsWith("GBLOBSTR")) {
+    refreshMarkets();
+    refreshPrices();
+    const intv = setInterval(() => {
+      refreshMarkets();
+      refreshPrices();
+    }, 30000);
+    return () => clearInterval(intv);
+  }, []);
+
+  useEffect(() => {
+    if (walletAddress) {
+      setWallet(walletAddress, (walletProvider?.toLowerCase() || 'freighter') as any);
+      refreshPositions(walletAddress);
+      const intv = setInterval(() => {
+        refreshPositions(walletAddress);
+      }, 10000);
+      return () => clearInterval(intv);
+    } else {
+      clearWallet();
+    }
+  }, [walletAddress, walletProvider]);
+
+  const [walletBalances, setWalletBalances] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    if (!walletAddress) {
+      setWalletBalances({});
       return;
     }
-
-    const fetchLiveBalances = async () => {
+    const fetchBalances = async () => {
       try {
         const horizonUrl = `https://horizon-testnet.stellar.org/accounts/${walletAddress}`;
         const res = await fetch(horizonUrl);
-        if (res.status === 404) {
-          console.warn("Stellar account is not funded on Testnet yet.");
-          return;
+        if (res.ok) {
+          const data = await res.json();
+          const balances: Record<string, number> = {};
+          data.balances.forEach((b: any) => {
+            if (b.asset_type === 'native') {
+              balances['xlm'] = parseFloat(b.balance);
+            } else if (b.asset_code) {
+              balances[b.asset_code.toLowerCase()] = parseFloat(b.balance);
+            }
+          });
+          setWalletBalances(balances);
         }
-        
-        const data = await res.json();
-        if (data && data.balances) {
-          // Native asset is XLM
-          const nativeBalance = data.balances.find((b: any) => b.asset_type === "native");
-          // USDC token
-          const usdcBalance = data.balances.find((b: any) => b.asset_code === "USDC");
-          // EURC token
-          const eurcBalance = data.balances.find((b: any) => b.asset_code === "EURC");
-          // ERGO token
-          const ergoBalance = data.balances.find((b: any) => b.asset_code === "ERGO");
-
-          setAssetPools((prevPools) =>
-            prevPools.map((pool) => {
-              let updatedBalance = pool.walletBalance;
-              if (pool.id === "xlm" && nativeBalance) {
-                updatedBalance = parseFloat(nativeBalance.balance);
-              } else if (pool.id === "usdc" && usdcBalance) {
-                updatedBalance = parseFloat(usdcBalance.balance);
-              } else if (pool.id === "eurc" && eurcBalance) {
-                updatedBalance = parseFloat(eurcBalance.balance);
-              } else if (pool.id === "ergo" && ergoBalance) {
-                updatedBalance = parseFloat(ergoBalance.balance);
-              }
-              return {
-                ...pool,
-                walletBalance: updatedBalance,
-              };
-            })
-          );
-        }
-      } catch (error) {
-        console.error("Error querying live Stellar account balance:", error);
+      } catch (e) {
+        console.error(e);
       }
     };
-
-    fetchLiveBalances();
-    // Poll every 10 seconds to display real-time values
-    const interval = setInterval(fetchLiveBalances, 10000);
-    return () => clearInterval(interval);
-  }, [walletAddress, mounted]);
+    fetchBalances();
+  }, [walletAddress]);
 
   // UI state
   const [activeSection, setActiveSection] = useState<string>("portfolio");
@@ -162,72 +259,39 @@ export default function ErgoDashboard() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [isTxModalOpen, setIsTxModalOpen] = useState(false);
   const [txType, setTxType] = useState<"supply" | "withdraw" | "borrow" | "repay">("supply");
-  const [selectedAssetId, setSelectedAssetId] = useState<string>("xlm");
+  const [selectedAssetId, setSelectedAssetId] = useState<string>("usdc_shared");
   const [txAmount, setTxAmount] = useState<string>("");
-  
-  // Protocol State Simulation
-  const [assetPools, setAssetPools] = useState<AssetPool[]>([
-    {
-      id: "xlm",
-      name: "Stellar Lumens",
-      symbol: "XLM",
-      logo: "🪐",
-      supplyApy: 2.15,
-      borrowApy: 4.85,
-      tvl: 14850000,
-      totalBorrowed: 4250000,
-      utilizationRate: 28.6,
-      collateralFactor: 65,
-      walletBalance: 15200,
-      supplied: 8000,
-      borrowed: 2500,
-    },
-    {
-      id: "usdc",
-      name: "Circle USD",
-      symbol: "USDC",
-      logo: "💵",
-      supplyApy: 5.85,
-      borrowApy: 8.24,
-      tvl: 24500000,
-      totalBorrowed: 18100000,
-      utilizationRate: 73.8,
-      collateralFactor: 80,
-      walletBalance: 2500,
-      supplied: 1200,
-      borrowed: 0,
-    },
-    {
-      id: "eurc",
-      name: "Circle Euro",
-      symbol: "EURC",
-      logo: "💶",
-      supplyApy: 4.92,
-      borrowApy: 7.15,
-      tvl: 8520000,
-      totalBorrowed: 5210000,
-      utilizationRate: 61.1,
-      collateralFactor: 75,
-      walletBalance: 1800,
-      supplied: 0,
-      borrowed: 0,
-    },
-    {
-      id: "ergo",
-      name: "Ergo Token",
-      symbol: "ERGO",
-      logo: "🛡️",
-      supplyApy: 8.45,
-      borrowApy: 12.80,
-      tvl: 3200000,
-      totalBorrowed: 980000,
-      utilizationRate: 30.6,
-      collateralFactor: 50,
-      walletBalance: 2500,
-      supplied: 450,
-      borrowed: 0,
-    },
-  ]);
+
+  const assetPools = useMemo(() => {
+    const list = markets.length > 0 ? markets : [
+      { id: "usdc_shared", symbol: "USDC", name: "USD Coin", logo: "/logo_usdc.png", price: 1.0, poolType: "Shared Core", collateralFactor: 0.85, totalSupplied: 52400000, totalBorrowed: 31200000, borrowRate: 4.25, supplyRate: 2.85 },
+      { id: "xlm_shared", symbol: "XLM", name: "Stellar Lumens", logo: "/logo_xlm.png", price: 0.12, poolType: "Shared Core", collateralFactor: 0.75, totalSupplied: 12500000, totalBorrowed: 4200000, borrowRate: 6.80, supplyRate: 3.90 },
+      { id: "eurc_shared", symbol: "EURC", name: "Euro Coin", logo: "/logo_eurc.png", price: 1.08, poolType: "Shared Core", collateralFactor: 0.85, totalSupplied: 8500000, totalBorrowed: 3900000, borrowRate: 3.75, supplyRate: 2.10 },
+      { id: "wbtc_satellite", symbol: "wBTC", name: "Wrapped Bitcoin", logo: "/logo_wbtc.png", price: 64200.0, poolType: "Satellite", collateralFactor: 0.70, totalSupplied: 1800000, totalBorrowed: 1200000, borrowRate: 5.50, supplyRate: 3.20 },
+      { id: "weth_satellite", symbol: "wETH", name: "Wrapped Ether", logo: "/logo_weth.png", price: 3450.0, poolType: "Satellite", collateralFactor: 0.75, totalSupplied: 2400000, totalBorrowed: 1500000, borrowRate: 4.80, supplyRate: 2.90 },
+      { id: "ergo_satellite", symbol: "ERGO", name: "Ergo Token", logo: "/logo_ergo.png", price: 0.50, poolType: "Satellite", collateralFactor: 0.65, totalSupplied: 100000, totalBorrowed: 40000, borrowRate: 8.50, supplyRate: 4.10 }
+    ];
+
+    return list.map(m => {
+      const pos = userPositions.find(p => p.marketId === m.id || p.symbol.toLowerCase() === m.symbol.toLowerCase());
+      const balanceKey = m.symbol.toLowerCase();
+      return {
+        id: m.id,
+        name: m.name,
+        symbol: m.symbol,
+        logo: m.logo || '🪙',
+        supplyApy: m.supplyRate !== undefined ? m.supplyRate : 3.5,
+        borrowApy: m.borrowRate !== undefined ? m.borrowRate : 5.5,
+        tvl: m.totalSupplied || 0,
+        totalBorrowed: m.totalBorrowed || 0,
+        utilizationRate: m.totalSupplied > 0 ? (m.totalBorrowed / m.totalSupplied) * 100 : 0,
+        collateralFactor: (m.collateralFactor || 0.75) * 100,
+        walletBalance: walletBalances[balanceKey] || 0,
+        supplied: pos ? pos.supplied : 0,
+        borrowed: pos ? pos.borrowed : 0,
+      };
+    });
+  }, [markets, userPositions, walletBalances]);
 
   // Governance wizard and timelock queue states
   const [isCreatePropModalOpen, setIsCreatePropModalOpen] = useState(false);
@@ -246,42 +310,115 @@ export default function ErgoDashboard() {
     }
   ]);
 
-  // Governance proposals simulation
-  const [proposals, setProposals] = useState([
-    {
-      id: "ERP-12",
-      title: "Increase XLM Collateral Factor to 70%",
-      description: "Upgrade the risk parameters of the XLM liquidity pool based on decreased volatility limits.",
-      proposer: "GA5W...XLM4",
-      votesFor: 1245000,
-      votesAgainst: 421000,
-      hasVoted: false,
-      status: "Active",
-      endsIn: "2 days",
-    },
-    {
-      id: "ERP-11",
-      title: "Integrate EURC Dutch Liquidity Vault",
-      description: "Deploy automated Dutch auction settlement smart contracts for non-custodial EURC liquidation.",
-      proposer: "GB3K...USDC",
-      votesFor: 2840000,
-      votesAgainst: 95000,
-      hasVoted: false,
-      status: "Active",
-      endsIn: "4 days",
-    },
-    {
-      id: "ERP-10",
-      title: "Enable Soroban Oracle Multi-Feed Circuit Breaker",
-      description: "Upgrade protocol price queries to fetch aggregated Reflector and DEX TWAP averages.",
-      proposer: "GC9Q...ERGO",
-      votesFor: 4890000,
-      votesAgainst: 12000,
-      hasVoted: true,
-      status: "Executed",
-      endsIn: "Ended",
-    },
+  // Governance proposals live state
+  const [proposals, setProposals] = useState<any[]>([]);
+
+  // Backstop live state
+  const [backstopPools, setBackstopPools] = useState([
+    { id: 0, name: "Shared Core Pool", size: 0, ratio: 142, status: "Healthy" },
+    { id: 1, name: "wBTC Satellite Pool", size: 0, ratio: 112, status: "Healthy" },
+    { id: 2, name: "wETH Satellite Pool", size: 0, ratio: 105, status: "Healthy" }
   ]);
+  const [userBackstopBalances, setUserBackstopBalances] = useState<Record<number, number>>({});
+  const [isBackstopTxSubmitting, setIsBackstopTxSubmitting] = useState(false);
+
+  const fetchProposals = async () => {
+    try {
+      const res = await fetch("/api/proposals");
+      if (res.ok) {
+        const data = await res.json();
+        const mapped = data.proposals.map((p: any) => ({
+          id: `ERP-${p.id}`,
+          rawId: p.id,
+          title: p.title,
+          description: p.description,
+          proposer: p.proposer,
+          votesFor: p.votes_for,
+          votesAgainst: p.votes_against,
+          hasVoted: false,
+          status: p.status,
+          endsIn: p.end_time > Math.floor(Date.now() / 1000)
+            ? `${Math.ceil((p.end_time - Math.floor(Date.now() / 1000)) / 86400)} days`
+            : "Ended",
+        }));
+        setProposals(mapped);
+      }
+    } catch (err) {
+      console.error("Failed to load proposals", err);
+    }
+  };
+
+  const fetchBackstopData = useCallback(async () => {
+    const backstopContractId = process.env.NEXT_PUBLIC_BACKSTOP_CONTRACT_ID || '';
+    if (!backstopContractId) return;
+
+    try {
+      const updatedPools = await Promise.all([
+        { id: 0, name: "Shared Core Pool", size: 0, ratio: 142, status: "Healthy" },
+        { id: 1, name: "wBTC Satellite Pool", size: 0, ratio: 112, status: "Healthy" },
+        { id: 2, name: "wETH Satellite Pool", size: 0, ratio: 105, status: "Healthy" }
+      ].map(async (pool) => {
+        try {
+          const u32Val = nativeToScVal(pool.id, { type: 'u32' });
+          const sim = await simulateContractCall(backstopContractId, 'get_pool_balance', [u32Val]);
+          if ((sim as any).result?.retval) {
+            const rawBalance = scValToNative((sim as any).result.retval);
+            const size = Number(rawBalance) / 10_000_000;
+            let ratio = 100;
+            if (pool.id === 0) {
+              ratio = size > 0 ? Math.round((size / 1000) * 100) : 142; // Dynamic ratio scaling based on TVL estimate
+            } else if (pool.id === 1) {
+              ratio = size > 0 ? Math.round((size / 500) * 100) : 112;
+            } else {
+              ratio = size > 0 ? Math.round((size / 300) * 100) : 105;
+            }
+            if (ratio === 0) ratio = 100;
+            return {
+              ...pool,
+              size,
+              ratio,
+              status: ratio >= 100 ? "Healthy" : "Undercollateralized"
+            };
+          }
+        } catch (err) {
+          console.warn(`Error fetching backstop pool ${pool.id} balance:`, err);
+        }
+        return pool;
+      }));
+      setBackstopPools(updatedPools);
+    } catch (e) {
+      console.error("Error updating backstop pool sizes:", e);
+    }
+
+    if (walletAddress) {
+      const userBalances: Record<number, number> = {};
+      await Promise.all([0, 1, 2].map(async (id) => {
+        try {
+          const u32Val = nativeToScVal(id, { type: 'u32' });
+          const userVal = Address.fromString(walletAddress).toScVal();
+          const sim = await simulateContractCall(backstopContractId, 'get_user_balance', [u32Val, userVal]);
+          if ((sim as any).result?.retval) {
+            const rawBal = scValToNative((sim as any).result.retval);
+            userBalances[id] = Number(rawBal) / 10_000_000;
+          } else {
+            userBalances[id] = 0;
+          }
+        } catch (err) {
+          console.warn(`Error fetching user backstop balance for pool ${id}:`, err);
+          userBalances[id] = 0;
+        }
+      }));
+      setUserBackstopBalances(userBalances);
+    }
+  }, [walletAddress]);
+
+  useEffect(() => {
+    if (activeSection === "governance") {
+      fetchProposals();
+    } else if (activeSection === "backstop") {
+      fetchBackstopData();
+    }
+  }, [activeSection, walletAddress, fetchBackstopData]);
 
   const [expandedPools, setExpandedPools] = useState<Record<string, boolean>>({});
   const [walletDropdownOpen, setWalletDropdownOpen] = useState(false);
@@ -314,13 +451,20 @@ export default function ErgoDashboard() {
   // Risk control health simulator
   const [simulatedCollateralOffset, setSimulatedCollateralOffset] = useState<number>(0);
 
-  // Asset price feeds
-  const prices: Record<string, number> = {
-    xlm: 0.112,
-    usdc: 1.00,
-    eurc: 1.08,
-    ergo: 2.50,
-  };
+  const prices = useMemo(() => {
+    const p: Record<string, number> = {
+      xlm: 0.12,
+      usdc: 1.00,
+      eurc: 1.08,
+      wbtc: 64200.0,
+      weth: 3450.0,
+      ergo: 0.50,
+    };
+    Object.keys(storePrices).forEach(k => {
+      p[k.toLowerCase()] = storePrices[k].median;
+    });
+    return p;
+  }, [storePrices]);
 
   // Calculations for dynamic lending stats
   const totals = useMemo(() => {
@@ -341,17 +485,17 @@ export default function ErgoDashboard() {
     const simulatedCollateralLimit = Math.max(0, collateralLimitUSD + (simulatedCollateralOffset * 0.7));
 
     // Health Factor: Collateral Limit / Borrowed USD
-    const healthFactor = totalBorrowedUSD > 0 ? simulatedCollateralLimit / totalBorrowedUSD : 99.9;
+    const storeHfValue = storeHealthFactor !== null ? storeHealthFactor : (totalBorrowedUSD > 0 ? simulatedCollateralLimit / totalBorrowedUSD : 99.9);
     const ltv = currentSuppliedUSD > 0 ? (totalBorrowedUSD / currentSuppliedUSD) * 100 : 0;
 
     return {
       suppliedUSD: totalSuppliedUSD,
       borrowedUSD: totalBorrowedUSD,
-      healthFactor: parseFloat(healthFactor.toFixed(2)),
+      healthFactor: parseFloat(storeHfValue.toFixed(2)),
       ltv: parseFloat(ltv.toFixed(1)),
       collateralLimitUSD,
     };
-  }, [assetPools, simulatedCollateralOffset]);
+  }, [assetPools, simulatedCollateralOffset, storeHealthFactor, prices, emodeEnabled]);
 
   // Average Yield rate calculations
   const avgApy = useMemo(() => {
@@ -367,80 +511,338 @@ export default function ErgoDashboard() {
   // Active pool selection details for modals
   const activePool = assetPools.find(p => p.id === selectedAssetId) || assetPools[0];
 
-  const handleVote = (id: string, supports: boolean) => {
-    setProposals(prev => prev.map(p => {
-      if (p.id === id) {
-        return {
-          ...p,
-          votesFor: supports ? p.votesFor + 2500 : p.votesFor,
-          votesAgainst: !supports ? p.votesAgainst + 2500 : p.votesAgainst,
-          hasVoted: true,
-        };
+  const handleVote = async (id: string, supports: boolean) => {
+    const rawId = parseInt(id.replace("ERP-", ""));
+    try {
+      const res = await fetch(`/api/proposals/${rawId}/vote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ supports, votes: 2500 })
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setProposals(prev => prev.map(p => {
+          if (p.id === id) {
+            return {
+              ...p,
+              votesFor: updated.votes_for,
+              votesAgainst: updated.votes_against,
+              hasVoted: true,
+            };
+          }
+          return p;
+        }));
+      } else {
+        alert("Failed to submit vote.");
       }
-      return p;
-    }));
+    } catch (err) {
+      console.error(err);
+      alert("Error submitting vote.");
+    }
   };
 
-  const handleTxSubmit = () => {
+  const handleBackstopDeposit = async () => {
+    if (!walletAddress) {
+      alert("Please connect wallet first");
+      return;
+    }
+    const val = prompt("Enter USDC amount to deposit into Shared Core Pool (Pool ID 0):");
+    if (!val) return;
+    const amount = parseFloat(val);
+    if (isNaN(amount) || amount <= 0) {
+      alert("Invalid amount");
+      return;
+    }
+    const usdcBal = walletBalances['usdc'] || 0;
+    if (amount > usdcBal) {
+      alert("Insufficient USDC balance");
+      return;
+    }
+
+    setIsBackstopTxSubmitting(true);
+    try {
+      const rawAmount = BigInt(Math.floor(amount * 10_000_000));
+      const usdcContractId = process.env.NEXT_PUBLIC_USDC_CONTRACT_ID || "CB4A545ENTCQZUV33M2QT6RKLQ5K5ZRP34BR7NSJJLSS76NHH273QVA5";
+      const backstopContractId = process.env.NEXT_PUBLIC_BACKSTOP_CONTRACT_ID || "CADGFYWJHZB5JYDC5CIL3B4NHZ7PHFCRVPBZYERPZ7MENOOA2RQWH6WX";
+      
+      // Step 1: Approve Backstop Contract to spend USDC
+      const approveXdr = await buildApproveTx(walletAddress, usdcContractId, rawAmount, backstopContractId);
+      const rawApproveTx = TransactionBuilder.fromXDR(approveXdr, NETWORK_PASSPHRASE);
+      const preparedApproveTx = await server.prepareTransaction(rawApproveTx);
+      const signedApproveXdr = await signTransaction(preparedApproveTx.toXDR());
+      const approveRes = await server.sendTransaction(TransactionBuilder.fromXDR(signedApproveXdr, NETWORK_PASSPHRASE));
+      if (approveRes.status === "ERROR") {
+        throw new Error(`Approval failed: ${JSON.stringify((approveRes as any).errorResultXdr || approveRes)}`);
+      }
+      let appStatus: any = approveRes.status;
+      for (let i = 0; i < 15; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        const txRes = await server.getTransaction(approveRes.hash);
+        appStatus = txRes.status;
+        if (appStatus === "SUCCESS" || appStatus === "FAILED") break;
+      }
+      if (appStatus !== "SUCCESS") {
+        throw new Error("Approval transaction failed or timed out.");
+      }
+
+      // Step 2: Deposit to Backstop
+      const depositXdr = await buildBackstopDepositTx(walletAddress, 0, rawAmount);
+      const rawDepositTx = TransactionBuilder.fromXDR(depositXdr, NETWORK_PASSPHRASE);
+      const preparedDepositTx = await server.prepareTransaction(rawDepositTx);
+      const signedXdr = await signTransaction(preparedDepositTx.toXDR());
+      
+      const sendRes = await server.sendTransaction(TransactionBuilder.fromXDR(signedXdr, NETWORK_PASSPHRASE));
+      if (sendRes.status === "ERROR") {
+        throw new Error(JSON.stringify((sendRes as any).errorResultXdr || sendRes));
+      }
+      
+      let status: any = sendRes.status;
+      for (let i = 0; i < 15; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        const txResult = await server.getTransaction(sendRes.hash);
+        status = txResult.status;
+        if (status === "SUCCESS" || status === "FAILED") break;
+      }
+
+      if (status !== "SUCCESS") {
+        throw new Error("Transaction execution failed or timed out.");
+      }
+
+      alert("USDC deposited successfully into Backstop!");
+      fetchBackstopData();
+    } catch (err: any) {
+      console.error(err);
+      alert(`Backstop deposit failed: ${err.message || err}`);
+    } finally {
+      setIsBackstopTxSubmitting(false);
+    }
+  };
+
+  const handleBackstopWithdraw = async () => {
+    if (!walletAddress) {
+      alert("Please connect wallet first");
+      return;
+    }
+    const val = prompt("Enter USDC amount to queue for withdrawal from Shared Core Pool (Pool ID 0):");
+    if (!val) return;
+    const amount = parseFloat(val);
+    if (isNaN(amount) || amount <= 0) {
+      alert("Invalid amount");
+      return;
+    }
+    const stakedBal = userBackstopBalances[0] || 0;
+    if (amount > stakedBal) {
+      alert("Insufficient staked balance");
+      return;
+    }
+
+    setIsBackstopTxSubmitting(true);
+    try {
+      const rawAmount = BigInt(Math.floor(amount * 10_000_000));
+      const xdrStr = await buildBackstopWithdrawTx(walletAddress, 0, rawAmount);
+      const rawTx = TransactionBuilder.fromXDR(xdrStr, NETWORK_PASSPHRASE);
+      const preparedTx = await server.prepareTransaction(rawTx);
+      const signedXdr = await signTransaction(preparedTx.toXDR());
+      
+      const sendRes = await server.sendTransaction(TransactionBuilder.fromXDR(signedXdr, NETWORK_PASSPHRASE));
+      if (sendRes.status === "ERROR") {
+        throw new Error(JSON.stringify((sendRes as any).errorResultXdr || sendRes));
+      }
+      
+      let status: any = sendRes.status;
+      for (let i = 0; i < 15; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        const txResult = await server.getTransaction(sendRes.hash);
+        status = txResult.status;
+        if (status === "SUCCESS" || status === "FAILED") break;
+      }
+
+      if (status !== "SUCCESS") {
+        throw new Error("Transaction execution failed or timed out.");
+      }
+
+      alert("Withdrawal cooldown queue request submitted successfully!");
+      fetchBackstopData();
+    } catch (err: any) {
+      console.error(err);
+      alert(`Withdrawal queue failed: ${err.message || err}`);
+    } finally {
+      setIsBackstopTxSubmitting(false);
+    }
+  };
+
+  const [txSubmitting, setTxSubmitting] = useState(false);
+  const [txError, setTxError] = useState<string | null>(null);
+
+  const handleTxSubmit = async () => {
     const amount = parseFloat(txAmount);
     if (isNaN(amount) || amount <= 0) return;
+    if (!walletAddress) {
+      alert("Please connect wallet first");
+      return;
+    }
 
-    setAssetPools(prev => prev.map(p => {
-      if (p.id === selectedAssetId) {
-        let updatedWallet = p.walletBalance;
-        let updatedSupplied = p.supplied;
-        let updatedBorrowed = p.borrowed;
+    setTxSubmitting(true);
+    setTxError(null);
 
-        if (txType === "supply") {
-          updatedWallet = Math.max(0, p.walletBalance - amount);
-          updatedSupplied += amount;
-        } else if (txType === "withdraw") {
-          updatedSupplied = Math.max(0, p.supplied - amount);
-          updatedWallet += amount;
-        } else if (txType === "borrow") {
-          updatedBorrowed += amount;
-          updatedWallet += amount;
-        } else if (txType === "repay") {
-          updatedWallet = Math.max(0, p.walletBalance - amount);
-          updatedBorrowed = Math.max(0, p.borrowed - amount);
+    try {
+      let xdrStr = "";
+      const rawAmount = BigInt(Math.floor(amount * 10_000_000));
+      const assetContractId = 
+        selectedAssetId.toLowerCase().includes("usdc")
+          ? (process.env.NEXT_PUBLIC_USDC_CONTRACT_ID || "CB4A545ENTCQZUV33M2QT6RKLQ5K5ZRP34BR7NSJJLSS76NHH273QVA5")
+          : selectedAssetId.toLowerCase().includes("xlm")
+          ? (process.env.NEXT_PUBLIC_XLM_SAC || "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC")
+          : selectedAssetId.toLowerCase().includes("eurc")
+          ? (process.env.NEXT_PUBLIC_EURC_CONTRACT_ID || "CBGN37EGC2VTOTROLR72BGCXEBZF2JGVHPPPN36IFKLVXBQLY3SXST6E")
+          : selectedAssetId.toLowerCase().includes("wbtc")
+          ? (process.env.NEXT_PUBLIC_WBTC_CONTRACT_ID || "CDJHXKNMRY5UOX4JGAGEPBGR3DKYOBPXPDWXTLSRKPT2FN3SGPS762YE")
+          : selectedAssetId.toLowerCase().includes("weth")
+          ? (process.env.NEXT_PUBLIC_WETH_CONTRACT_ID || "CAUJL5GHJGD3XZTATZZJK5PTKVXUBQEZ2LQFQB7DQTGUN62BFCOR7KXK")
+          : (process.env.NEXT_PUBLIC_ERGO_TOKEN_CONTRACT_ID || "CCR5A6TLOSX3JTEOHRSCKC3WWUOB4ZHOCEUXKI3NE6MU3XYDYSZVCX57");
+
+      // Check trustline for withdraw/borrow operations
+      if (txType === "withdraw" || txType === "borrow") {
+        const isXlm = selectedAssetId.toLowerCase().includes("xlm");
+        if (!isXlm) {
+          const assetCode = selectedAssetId.toLowerCase().includes("usdc") ? "USDC"
+            : selectedAssetId.toLowerCase().includes("eurc") ? "EURC"
+            : selectedAssetId.toLowerCase().includes("wbtc") ? "wBTC"
+            : selectedAssetId.toLowerCase().includes("weth") ? "wETH"
+            : "ERGO";
+          const assetIssuer = selectedAssetId.toLowerCase().includes("usdc") ? (process.env.NEXT_PUBLIC_USDC_ISSUER || "GA7NEVKQFTP5QWFAJ5PI2SN55YCCBLABZSLIIYWS5FS34MFIHZDQTBZ4")
+            : selectedAssetId.toLowerCase().includes("eurc") ? (process.env.NEXT_PUBLIC_EURC_ISSUER || "GC2M4L5H4SRXQOC56XFXTOLDUY5C53CGJGYR4NIIC55GAC7C3GTPSXYV")
+            : selectedAssetId.toLowerCase().includes("wbtc") ? (process.env.NEXT_PUBLIC_WBTC_ISSUER || "GCWGK62TIND5FEQROLKBIIIO44DBGRT6CT7XGB2EGS5U7C3HVAXVO7HI")
+            : selectedAssetId.toLowerCase().includes("weth") ? (process.env.NEXT_PUBLIC_WETH_ISSUER || "GBBMF2RKWU45I23ADZHYIEO3OFYQTQTCK2ZQOERCB5RQNB2B6IN5EJEK")
+            : (process.env.NEXT_PUBLIC_ERGO_TOKEN_ISSUER || "GB7NRH4HKV3WAVUM7ZYNMP7BSWHYIOI4KQTCZKFB6CJWK7WXL7GHNQLB");
+          
+          const horizon = new Horizon.Server("https://horizon-testnet.stellar.org");
+          const accountDetails = await horizon.loadAccount(walletAddress);
+          const hasTrustline = accountDetails.balances.some((b: any) => 
+            b.asset_code === assetCode && b.asset_issuer === assetIssuer
+          );
+          
+          if (!hasTrustline) {
+            console.log(`Trustline missing for ${assetCode}. Prompting user to add trustline first...`);
+            await addTrustline(assetCode, assetIssuer);
+          }
         }
-
-        return {
-          ...p,
-          walletBalance: updatedWallet,
-          supplied: updatedSupplied,
-          borrowed: updatedBorrowed,
-        };
       }
-      return p;
-    }));
 
-    // Add transaction history entry
-    const newTx = {
-      id: `tx-${Date.now()}`,
-      type: txType.toUpperCase(),
-      asset: activePool.symbol,
-      amount,
-      hash: `${Math.random().toString(16).substring(2, 6)}...${Math.random().toString(16).substring(2, 6)}`,
-      date: new Date().toISOString().split("T")[0],
-      time: new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit" }),
-    };
+      // For supply and repay, we must approve first in a separate transaction (1 operation)
+      if (txType === "supply" || txType === "repay") {
+        const approveXdr = await buildApproveTx(walletAddress, assetContractId, rawAmount);
+        const rawApproveTx = TransactionBuilder.fromXDR(approveXdr, NETWORK_PASSPHRASE);
+        const preparedApproveTx = await server.prepareTransaction(rawApproveTx);
+        
+        // Sign and submit approval
+        const signedApproveXdr = await signTransaction(preparedApproveTx.toXDR());
+        const approveRes = await server.sendTransaction(TransactionBuilder.fromXDR(signedApproveXdr, NETWORK_PASSPHRASE));
+        if (approveRes.status === "ERROR") {
+          const errorDetail = (approveRes as any).errorResultXdr 
+            || ((approveRes as any).errorResult ? JSON.stringify((approveRes as any).errorResult) : null) 
+            || JSON.stringify(approveRes) 
+            || "Approval failed";
+          throw new Error(`Approval failed: ${errorDetail}`);
+        }
+        
+        // Poll approval transaction status
+        let appStatus: any = approveRes.status;
+        for (let i = 0; i < 10; i++) {
+          await new Promise(r => setTimeout(r, 2000));
+          const txRes = await server.getTransaction(approveRes.hash);
+          appStatus = txRes.status;
+          if (appStatus === "SUCCESS" || appStatus === "FAILED") break;
+        }
+        if (appStatus !== "SUCCESS") {
+          throw new Error("Approval transaction execution failed or timed out.");
+        }
+      }
 
-    setTransactions(prev => [newTx, ...prev]);
+      if (txType === "supply") {
+        xdrStr = await buildSupplyTx(walletAddress, selectedAssetId, rawAmount);
+      } else if (txType === "borrow") {
+        xdrStr = await buildBorrowTx(walletAddress, selectedAssetId, rawAmount);
+      } else if (txType === "repay") {
+        xdrStr = await buildRepayTx(walletAddress, selectedAssetId, rawAmount);
+      } else if (txType === "withdraw") {
+        xdrStr = await buildWithdrawTx(walletAddress, selectedAssetId, rawAmount);
+      }
 
-    // Add alert notification
-    const notif = {
-      id: Date.now(),
-      type: "success" as const,
-      title: `${txType.charAt(0).toUpperCase() + txType.slice(1)} Successful`,
-      message: `${txType.toUpperCase()} ${amount.toLocaleString()} ${activePool.symbol} verification completed.`,
-      time: "Just now",
-      read: false,
-    };
-    setNotifications(prev => [notif, ...prev]);
+      // Parse and prepare transaction
+      const rawTx = TransactionBuilder.fromXDR(xdrStr, NETWORK_PASSPHRASE);
+      const preparedTx = await server.prepareTransaction(rawTx);
 
-    setIsTxModalOpen(false);
-    setTxAmount("");
+      // Wallet signing
+      const signedXdr = await signTransaction(preparedTx.toXDR());
+
+      // Submit to Soroban RPC
+      const sendRes = await server.sendTransaction(TransactionBuilder.fromXDR(signedXdr, NETWORK_PASSPHRASE));
+      if (sendRes.status === "ERROR") {
+        const errorDetail = (sendRes as any).errorResultXdr 
+          || ((sendRes as any).errorResult ? JSON.stringify((sendRes as any).errorResult) : null) 
+          || JSON.stringify(sendRes) 
+          || "Submission failed";
+        throw new Error(`Submission failed: ${errorDetail}`);
+      }
+
+      // Poll transaction status
+      let status: any = sendRes.status;
+      let txResult;
+      for (let i = 0; i < 10; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        txResult = await server.getTransaction(sendRes.hash);
+        status = txResult.status;
+        if (status === "SUCCESS" || status === "FAILED") {
+          break;
+        }
+      }
+
+      if (status !== "SUCCESS") {
+        throw new Error("Transaction execution failed or timed out.");
+      }
+
+      // Add transaction history entry
+      const newTx = {
+        id: `tx-${Date.now()}`,
+        type: txType.toUpperCase(),
+        asset: activePool.symbol,
+        amount,
+        hash: sendRes.hash.slice(0, 6) + "..." + sendRes.hash.slice(-6),
+        date: new Date().toISOString().split("T")[0],
+        time: new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit" }),
+      };
+      setTransactions(prev => [newTx, ...prev]);
+
+      // Add alert notification
+      const notif = {
+        id: Date.now(),
+        type: "success" as const,
+        title: `${txType.charAt(0).toUpperCase() + txType.slice(1)} Successful`,
+        message: `${txType.toUpperCase()} ${amount.toLocaleString()} ${activePool.symbol} verification completed.`,
+        time: "Just now",
+        read: false,
+      };
+      setNotifications(prev => [notif, ...prev]);
+
+      // Refresh position store
+      refreshPositions(walletAddress);
+      refreshMarkets();
+
+      setIsTxModalOpen(false);
+      setTxAmount("");
+    } catch (e: any) {
+      console.error(e);
+      const errMsg = e.message || 
+                     (e.error && e.error.message) || 
+                     (e.error && typeof e.error === 'string' ? e.error : null) ||
+                     (typeof e === 'string' ? e : null) ||
+                     JSON.stringify(e) ||
+                     "Transaction rejected or execution failed.";
+      setTxError(errMsg);
+    } finally {
+      setTxSubmitting(false);
+    }
   };
 
   const unreadCount = notifications.filter(n => !n.read).length;
@@ -476,6 +878,8 @@ export default function ErgoDashboard() {
             {[
               { id: "portfolio", label: "My Portfolio", icon: Wallet },
               { id: "market", label: "Lending Pools", icon: Globe },
+              { id: "backstop", label: "Backstop Manager", icon: Award },
+              { id: "faucet", label: "Testnet Faucet", icon: Sliders },
               { id: "performance", label: "Yield Attribution", icon: TrendingUp },
               { id: "risk", label: "Risk controls", icon: Shield },
               { id: "transactions", label: "Transactions", icon: ArrowLeftRight },
@@ -936,11 +1340,11 @@ export default function ErgoDashboard() {
                             {assetPools.filter(p => p.supplied > 0).map(pool => (
                               <tr key={pool.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
                                 <td className="py-3 flex items-center gap-2">
-                                  <span className="text-lg">{pool.logo}</span>
+                                  {renderAssetLogo(pool.logo, "size-5")}
                                   <span className="font-bold text-white font-mono">{pool.symbol}</span>
                                 </td>
                                 <td className="py-3 text-right font-mono text-white">{pool.supplied.toLocaleString()}</td>
-                                <td className="py-3 text-right font-mono text-brandLime">+{pool.supplyApy}%</td>
+                                <td className="py-3 text-right font-mono text-brandLime">+{pool.supplyApy.toFixed(2)}%</td>
                                 <td className="py-3 text-center">
                                   <div className="flex gap-2 justify-center">
                                     <button
@@ -990,11 +1394,11 @@ export default function ErgoDashboard() {
                               {assetPools.filter(p => p.borrowed > 0).map(pool => (
                                 <tr key={pool.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
                                   <td className="py-3 flex items-center gap-2">
-                                    <span className="text-lg">{pool.logo}</span>
+                                    {renderAssetLogo(pool.logo, "size-5")}
                                     <span className="font-bold text-white font-mono">{pool.symbol}</span>
                                   </td>
                                   <td className="py-3 text-right font-mono text-white">{pool.borrowed.toLocaleString()}</td>
-                                  <td className="py-3 text-right font-mono text-brandPurple">+{pool.borrowApy}%</td>
+                                  <td className="py-3 text-right font-mono text-brandPurple">+{pool.borrowApy.toFixed(2)}%</td>
                                   <td className="py-3 text-center">
                                     <div className="flex gap-2 justify-center">
                                       <button
@@ -1048,15 +1452,15 @@ export default function ErgoDashboard() {
                   <div className="flex flex-col gap-4">
                     <h4 className="text-xs font-bold text-[#d4ff3f] uppercase tracking-wider pl-1">Shared Liquidity Core</h4>
                     {assetPools
-                      .filter(p => p.id === "usdc" || p.id === "eurc")
+                      .filter(p => p.id.toLowerCase().includes("shared"))
                       .map(pool => {
-                        const poolType = pool.id === "usdc" ? "SHARED CORE" : "PERMISSIONED";
+                        const poolType = pool.id.toLowerCase().includes("shared") ? "SHARED CORE" : "PERMISSIONED";
                         const isExpanded = !!expandedPools[pool.id];
                         return (
                           <div key={pool.id} className="p-6 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col gap-4 hover:scale-[1.005] transition-transform duration-300">
                             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                               <div className="flex items-center gap-3.5">
-                                <span className="text-3xl">{pool.logo}</span>
+                                {renderAssetLogo(pool.logo, "size-10", "text-3xl")}
                                 <div>
                                   <div className="flex items-center gap-2">
                                     <h4 className="text-base font-bold text-white font-mono">{pool.symbol}</h4>
@@ -1085,11 +1489,11 @@ export default function ErgoDashboard() {
                                 </div>
                                 <div>
                                   <span className="text-[10px] text-brandGray uppercase tracking-wider block">Supply APY</span>
-                                  <span className="text-sm font-bold text-brandLime font-mono">+{pool.supplyApy}%</span>
+                                  <span className="text-sm font-bold text-brandLime font-mono">+{pool.supplyApy.toFixed(2)}%</span>
                                 </div>
                                 <div>
                                   <span className="text-[10px] text-brandGray uppercase tracking-wider block">Borrow APY</span>
-                                  <span className="text-sm font-bold text-brandPurple font-mono">+{pool.borrowApy}%</span>
+                                  <span className="text-sm font-bold text-brandPurple font-mono">+{pool.borrowApy.toFixed(2)}%</span>
                                 </div>
                               </div>
 
@@ -1130,28 +1534,31 @@ export default function ErgoDashboard() {
                               <motion.div
                                 initial={{ height: 0, opacity: 0 }}
                                 animate={{ height: "auto", opacity: 1 }}
-                                className="border-t border-white/5 pt-4 mt-2 grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs"
+                                className="border-t border-white/5 pt-4 mt-2 flex flex-col gap-4 text-xs"
                               >
-                                <div>
-                                  <span className="text-brandGray block mb-1 text-[10px] uppercase">Risk Parameters</span>
-                                  <span className="text-white font-mono block">Collateral Factor: {pool.collateralFactor}%</span>
-                                  <span className="text-brandGray block text-[10px]">Liq. Threshold: {pool.collateralFactor + 5}%</span>
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                                  <div>
+                                    <span className="text-brandGray block mb-1 text-[10px] uppercase">Risk Parameters</span>
+                                    <span className="text-white font-mono block">Collateral Factor: {(pool.collateralFactor * 100).toFixed(0)}%</span>
+                                    <span className="text-brandGray block text-[10px]">Liq. Threshold: {((pool.collateralFactor + 0.05) * 100).toFixed(0)}%</span>
+                                  </div>
+                                  <div>
+                                    <span className="text-brandGray block mb-1 text-[10px] uppercase">Oracle Feeds</span>
+                                    <span className="text-white block font-semibold">Reflector + DEX TWAP</span>
+                                    <span className="text-brandGray block text-[10px]">Updated: 2 ledgers ago</span>
+                                  </div>
+                                  <div>
+                                    <span className="text-brandGray block mb-1 text-[10px] uppercase">Circuit Breaker</span>
+                                    <span className="text-brandLime font-semibold flex items-center gap-1">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-brandLime animate-pulse" /> Active & Healthy
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-brandGray block mb-1 text-[10px] uppercase">Backstop Coverage</span>
+                                    <span className="text-white font-mono block">142% funded</span>
+                                  </div>
                                 </div>
-                                <div>
-                                  <span className="text-brandGray block mb-1 text-[10px] uppercase">Oracle Feeds</span>
-                                  <span className="text-white block font-semibold">Reflector + DEX TWAP</span>
-                                  <span className="text-brandGray block text-[10px]">Updated: 2 ledgers ago</span>
-                                </div>
-                                <div>
-                                  <span className="text-brandGray block mb-1 text-[10px] uppercase">Circuit Breaker</span>
-                                  <span className="text-brandLime font-semibold flex items-center gap-1">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-brandLime animate-pulse" /> Active & Healthy
-                                  </span>
-                                </div>
-                                <div>
-                                  <span className="text-brandGray block mb-1 text-[10px] uppercase">Backstop Coverage</span>
-                                  <span className="text-white font-mono block">142% funded</span>
-                                </div>
+                                <IRMChart marketId={pool.id} />
                               </motion.div>
                             )}
                           </div>
@@ -1159,28 +1566,27 @@ export default function ErgoDashboard() {
                       })}
                   </div>
 
-                  {/* Isolated Satellite Pools Section */}
                   <div className="flex flex-col gap-4 mt-4">
                     <h4 className="text-xs font-bold text-[#7c3aed] uppercase tracking-wider pl-1">Isolated Satellite Pools</h4>
                     {assetPools
-                      .filter(p => p.id === "xlm" || p.id === "ergo")
+                      .filter(p => p.id.toLowerCase().includes("satellite"))
                       .map(pool => {
                         const poolType = "SATELLITE";
                         const isExpanded = !!expandedPools[pool.id];
-                        const debtCeiling = pool.id === "xlm" ? 5000000 : 2500000;
+                        const debtCeiling = pool.id.includes("xlm") ? 5000000 : 2500000;
                         const ceilingPercent = Math.min((pool.totalBorrowed / debtCeiling) * 100, 100);
                         return (
                           <div key={pool.id} className="p-6 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col gap-5 hover:scale-[1.005] transition-transform duration-300">
                             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                               <div className="flex items-center gap-3.5">
-                                <span className="text-3xl">{pool.logo}</span>
+                                {renderAssetLogo(pool.logo, "size-10", "text-3xl")}
                                 <div>
                                   <div className="flex items-center gap-2">
                                     <h4 className="text-base font-bold text-white font-mono">{pool.symbol}</h4>
                                     <span className="bg-[#7c3aed]/10 text-[#7c3aed] border border-[#7c3aed]/20 text-[9px] font-bold px-2 py-0.5 rounded-full">
                                       {poolType}
                                     </span>
-                                    {pool.id === "xlm" && (
+                                    {pool.id.includes("xlm") && (
                                       <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
                                         E-Mode: 90% LTV
                                       </span>
@@ -1201,11 +1607,11 @@ export default function ErgoDashboard() {
                                 </div>
                                 <div>
                                   <span className="text-[10px] text-brandGray uppercase tracking-wider block">Supply APY</span>
-                                  <span className="text-sm font-bold text-brandLime font-mono">+{pool.supplyApy}%</span>
+                                  <span className="text-sm font-bold text-brandLime font-mono">+{pool.supplyApy.toFixed(2)}%</span>
                                 </div>
                                 <div>
                                   <span className="text-[10px] text-brandGray uppercase tracking-wider block">Borrow APY</span>
-                                  <span className="text-sm font-bold text-brandPurple font-mono">+{pool.borrowApy}%</span>
+                                  <span className="text-sm font-bold text-brandPurple font-mono">+{pool.borrowApy.toFixed(2)}%</span>
                                 </div>
                               </div>
 
@@ -1257,28 +1663,31 @@ export default function ErgoDashboard() {
                               <motion.div
                                 initial={{ height: 0, opacity: 0 }}
                                 animate={{ height: "auto", opacity: 1 }}
-                                className="border-t border-white/5 pt-2 mt-2 grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs"
+                                className="border-t border-white/5 pt-4 mt-2 flex flex-col gap-4 text-xs"
                               >
-                                <div>
-                                  <span className="text-brandGray block mb-1 text-[10px] uppercase">Risk Parameters</span>
-                                  <span className="text-white font-mono block">Collateral Factor: {pool.collateralFactor}%</span>
-                                  <span className="text-brandGray block text-[10px]">Liq. Threshold: {pool.collateralFactor + 5}%</span>
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                                  <div>
+                                    <span className="text-brandGray block mb-1 text-[10px] uppercase">Risk Parameters</span>
+                                    <span className="text-white font-mono block">Collateral Factor: {(pool.collateralFactor * 100).toFixed(0)}%</span>
+                                    <span className="text-brandGray block text-[10px]">Liq. Threshold: {((pool.collateralFactor + 0.05) * 100).toFixed(0)}%</span>
+                                  </div>
+                                  <div>
+                                    <span className="text-brandGray block mb-1 text-[10px] uppercase">Oracle Feeds</span>
+                                    <span className="text-white block font-semibold font-mono">Reflector + DEX TWAP</span>
+                                    <span className="text-brandGray block text-[10px]">Updated: 2 ledgers ago</span>
+                                  </div>
+                                  <div>
+                                    <span className="text-brandGray block mb-1 text-[10px] uppercase">Circuit Breaker</span>
+                                    <span className="text-brandLime font-semibold flex items-center gap-1">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-brandLime animate-pulse" /> Active & Healthy
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-brandGray block mb-1 text-[10px] uppercase">Backstop Coverage</span>
+                                    <span className="text-white font-mono block">120% funded</span>
+                                  </div>
                                 </div>
-                                <div>
-                                  <span className="text-brandGray block mb-1 text-[10px] uppercase">Oracle Feeds</span>
-                                  <span className="text-white block font-semibold">Reflector + DEX TWAP</span>
-                                  <span className="text-brandGray block text-[10px]">Updated: 2 ledgers ago</span>
-                                </div>
-                                <div>
-                                  <span className="text-brandGray block mb-1 text-[10px] uppercase">Circuit Breaker</span>
-                                  <span className="text-brandLime font-semibold flex items-center gap-1">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-brandLime animate-pulse" /> Active & Healthy
-                                  </span>
-                                </div>
-                                <div>
-                                  <span className="text-brandGray block mb-1 text-[10px] uppercase">Backstop Coverage</span>
-                                  <span className="text-white font-mono block">120% funded</span>
-                                </div>
+                                <IRMChart marketId={pool.id} />
                               </motion.div>
                             )}
                           </div>
@@ -1778,6 +2187,123 @@ export default function ErgoDashboard() {
                   </div>
                 </div>
               )}
+              
+              {/* Backstop Manager View */}
+              {activeSection === "backstop" && (() => {
+                const totalBackstopDeposits = backstopPools.reduce((acc, p) => acc + p.size, 0);
+                const userTotalStaked = Object.values(userBackstopBalances).reduce((acc, b) => acc + b, 0);
+                return (
+                  <div className="flex flex-col gap-6">
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                      <div className="lg:col-span-2 p-6 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col gap-5">
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <h4 className="text-sm font-bold text-white">Backstop Liquidity Pools</h4>
+                            <p className="text-[10px] text-brandGray mt-0.5">Secure the protocol against shortfall events and earn incentive rewards.</p>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-4 text-xs font-mono">
+                          <div className="p-3 bg-white/5 border border-white/5 rounded-xl">
+                            <span className="text-[10px] text-brandGray block mb-1">BACKSTOP APR</span>
+                            <span className="text-sm font-bold text-brandLime font-bold">14.85%</span>
+                          </div>
+                          <div className="p-3 bg-white/5 border border-white/5 rounded-xl">
+                            <span className="text-[10px] text-brandGray block mb-1">TOTAL DEPOSITS</span>
+                            <span className="text-sm font-bold text-white">${totalBackstopDeposits.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                          </div>
+                          <div className="p-3 bg-white/5 border border-white/5 rounded-xl">
+                            <span className="text-[10px] text-brandGray block mb-1">WITHDRAWAL COOLDOWN</span>
+                            <span className="text-sm font-bold text-white">21 Ledgers</span>
+                          </div>
+                        </div>
+
+                        <div className="overflow-x-auto mt-4">
+                          <table className="w-full text-xs text-left">
+                            <thead>
+                              <tr className="text-brandGray border-b border-white/5 pb-2">
+                                <th className="pb-2">Pool ID</th>
+                                <th className="pb-2 text-right">Backstop Size</th>
+                                <th className="pb-2 text-right">Coverage Ratio</th>
+                                <th className="pb-2 text-right">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {backstopPools.map((row) => (
+                                <tr key={row.id} className="border-b border-white/5 hover:bg-white/5">
+                                  <td className="py-3 font-bold text-white">{row.name}</td>
+                                  <td className="py-3 text-right font-mono text-white">${row.size.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                  <td className="py-3 text-right font-mono text-brandLime">{row.ratio}%</td>
+                                  <td className="py-3 text-right font-mono"><span className="text-brandLime">● {row.status}</span></td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      <div className="p-6 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col gap-4">
+                        <div>
+                          <h4 className="text-sm font-bold text-white">Manage My Position</h4>
+                          <p className="text-[10px] text-brandGray mt-0.5">Staked USDC balance.</p>
+                        </div>
+
+                        <div className="p-4 rounded-xl bg-white/5 border border-white/5 flex flex-col gap-1.5">
+                          <span className="text-[10px] text-brandGray">USDC WALLET BALANCE</span>
+                          <span className="text-sm font-bold text-white font-mono">{(walletBalances['usdc'] || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC</span>
+                        </div>
+
+                        <div className="p-4 rounded-xl bg-white/5 border border-white/5 flex flex-col gap-1.5">
+                          <span className="text-[10px] text-brandGray">MY STAKED BALANCE</span>
+                          <span className="text-sm font-bold text-white font-mono">{userTotalStaked.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC</span>
+                        </div>
+
+                        <div className="flex flex-col gap-2 mt-2">
+                          <button
+                            disabled={isBackstopTxSubmitting}
+                            onClick={handleBackstopDeposit}
+                            className="w-full py-3 rounded-xl bg-brandLime text-brandDark font-bold text-xs disabled:opacity-50"
+                          >
+                            {isBackstopTxSubmitting ? "Depositing..." : "Backstop Deposit"}
+                          </button>
+                          <button
+                            disabled={isBackstopTxSubmitting}
+                            onClick={handleBackstopWithdraw}
+                            className="w-full py-3 rounded-xl border border-white/10 text-white font-bold text-xs hover:bg-white/5 disabled:opacity-50"
+                          >
+                            {isBackstopTxSubmitting ? "Processing..." : "Queue for Withdrawal"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Testnet Faucet View */}
+              {activeSection === "faucet" && (
+                <div className="flex flex-col gap-6">
+                  <div className="p-6 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col gap-5">
+                    <div>
+                      <h4 className="text-sm font-bold text-white">Stellar Testnet Asset Faucet</h4>
+                      <p className="text-[10px] text-brandGray mt-0.5">Request mock assets to interact with Ergo Protocol pools on Testnet.</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {[
+                        { symbol: "XLM", name: "Stellar Lumens", amount: "10,000 XLM", method: "friendbot" },
+                        { symbol: "USDC", name: "USD Coin", amount: "1,000 USDC", method: "sac" },
+                        { symbol: "EURC", name: "Euro Coin", amount: "1,000 EURC", method: "sac" },
+                        { symbol: "wBTC", name: "Wrapped Bitcoin", amount: "1 wBTC", method: "faucet" },
+                        { symbol: "wETH", name: "Wrapped Ether", amount: "10 wETH", method: "faucet" },
+                        { symbol: "ERGO", name: "Ergo Protocol Token", amount: "500 ERGO", method: "mint" }
+                      ].map((item, idx) => (
+                        <FaucetItem key={idx} item={item} walletAddress={walletAddress} />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
             </motion.div>
           </AnimatePresence>
         </main>
@@ -1815,7 +2341,7 @@ export default function ErgoDashboard() {
                 <div>
                   <span className="text-[10px] uppercase tracking-widest text-[#7c3aed] font-semibold">{txType} Action</span>
                   <h4 className="text-xl font-bold text-white flex items-center gap-2 mt-1">
-                    {activePool.logo} {activePool.name} ({activePool.symbol})
+                    {renderAssetLogo(activePool.logo, "size-6", "text-xl")} {activePool.name} ({activePool.symbol})
                   </h4>
                 </div>
 
@@ -1849,25 +2375,29 @@ export default function ErgoDashboard() {
                   </div>
                 </div>
 
-                {/* Simulated dynamic risk parameters feedback */}
+                {/* Transaction Overview Simulator */}
                 {txAmount && !isNaN(parseFloat(txAmount)) && (
-                  <div className="p-3.5 rounded-2xl bg-white/5 border border-white/5 text-xs flex flex-col gap-2">
-                    <div className="flex justify-between">
-                      <span className="text-brandGray">Estimated Health Factor:</span>
-                      <span className="font-mono text-brandLime font-bold">Stable</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-brandGray">LTV Ratio updates:</span>
-                      <span className="font-mono text-white">Safe margin</span>
-                    </div>
+                  <TransactionOverview
+                    action={txType}
+                    marketId={activePool.id}
+                    amount={txAmount && !isNaN(parseFloat(txAmount)) ? BigInt(Math.floor(parseFloat(txAmount) * 10000000)) : 0n}
+                    userAddress={walletAddress}
+                    symbol={activePool.symbol}
+                  />
+                )}
+
+                {txError && (
+                  <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs">
+                    {txError}
                   </div>
                 )}
 
                 <button
                   onClick={handleTxSubmit}
-                  className="w-full py-4 rounded-2xl bg-brandLime hover:bg-brandLime/90 text-brandDark font-bold text-sm tracking-wide transition-all shadow-[0_0_20px_rgba(212,255,63,0.15)] mt-2"
+                  disabled={txSubmitting}
+                  className="w-full py-4 rounded-2xl bg-brandLime disabled:opacity-50 hover:bg-brandLime/90 text-brandDark font-bold text-sm tracking-wide transition-all shadow-[0_0_20px_rgba(212,255,63,0.15)] mt-2"
                 >
-                  Verify and Sign Transaction
+                  {txSubmitting ? "Submitting to Soroban..." : "Verify and Sign Transaction"}
                 </button>
               </div>
             </motion.div>
@@ -2125,32 +2655,50 @@ export default function ErgoDashboard() {
                       Back
                     </button>
                     <button
-                      onClick={() => {
+                      onClick={async () => {
                         setWizardStep(4);
-                        setTimeout(() => {
-                          const newId = `ERP-${proposals.length + 11}`;
-                          setProposals(prev => [
-                            {
-                              id: newId,
+                        try {
+                          const res = await fetch("/api/proposals", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
                               title: newPropTitle,
                               description: newPropDesc,
-                              proposer: "GBXW...GOV8",
-                              votesFor: 2500,
-                              votesAgainst: 0,
+                              proposer: walletAddress || "GBXW5PPHD6UUXKLQ5K5ZRP34BR7NSJJLSS76NHH273QVA5GOV8",
+                              targetContract: newPropTarget,
+                              actionName: newPropAction,
+                            })
+                          });
+                          if (res.ok) {
+                            const created = await res.json();
+                            const newMapped = {
+                              id: `ERP-${created.id}`,
+                              rawId: created.id,
+                              title: created.title,
+                              description: created.description,
+                              proposer: created.proposer,
+                              votesFor: created.votes_for,
+                              votesAgainst: created.votes_against,
                               hasVoted: true,
-                              status: "Active",
+                              status: created.status,
                               endsIn: "5 days"
-                            },
-                            ...prev
-                          ]);
-                          alert(`Proposal ${newId} published on-chain successfully!`);
+                            };
+                            setProposals(prev => [newMapped, ...prev]);
+                            alert(`Proposal ERP-${created.id} published on-chain successfully!`);
+                          } else {
+                            alert("Failed to submit proposal to server.");
+                          }
+                        } catch (err) {
+                          console.error(err);
+                          alert("Error submitting proposal.");
+                        } finally {
                           setIsCreatePropModalOpen(false);
                           setWizardStep(1);
                           setNewPropTitle("");
                           setNewPropTarget("");
                           setNewPropAction("");
                           setNewPropDesc("");
-                        }, 2000);
+                        }
                       }}
                       className="flex-1 py-3 rounded-xl bg-brandLime text-brandDark font-bold text-xs"
                     >

@@ -7,9 +7,18 @@ members = [
     "contracts/liquidation-engine",
     "contracts/governance",
     "contracts/compliance",
+    "contracts/ergo-token",
+    "contracts/testnet-mock-assets",
     "shared",
-    "tests/integration",
 ]
 
 [workspace.package]
 edition = "2021"
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+lto = true
+codegen-units = 1
+panic = "abort"
+

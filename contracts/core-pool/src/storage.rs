@@ -38,7 +38,7 @@ pub fn get_markets(env: &Env) -> Vec<Symbol> {
     env.storage()
         .persistent()
         .get(&DataKey::MarketsList)
-        .unwrap_or_else(|_| Vec::new(env))
+        .unwrap_or_else(|| Vec::new(env))
 }
 
 pub fn set_markets(env: &Env, markets: &Vec<Symbol>) {
@@ -95,4 +95,62 @@ pub fn get_credit_allowance(env: &Env, market_id: Symbol, delegator: Address, de
         .persistent()
         .get(&DataKey::CreditAllowance(market_id, delegator, delegatee))
         .unwrap_or(0)
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct MarketStats {
+    pub market_id: Symbol,
+    pub total_supplied: i128,
+    pub total_borrowed: i128,
+    pub available_liquidity: i128,
+    pub utilization_rate: i128,
+    pub supply_apy: i128,
+    pub borrow_apy: i128,
+    pub collateral_factor: u32,
+    pub liability_factor: u32,
+    pub paused: bool,
+    pub permissioned: bool,
+    pub market_type: Symbol,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct UserMarketPosition {
+    pub market_id: Symbol,
+    pub supplied: i128,
+    pub borrowed: i128,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct UserPosition {
+    pub health_factor: i128,
+    pub borrow_capacity_usd: i128,
+    pub net_apy: i128,
+    pub positions_used: u32,
+    pub markets: Vec<UserMarketPosition>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SimulationResult {
+    pub hf_before: i128,
+    pub hf_after: i128,
+    pub borrow_capacity_before: i128,
+    pub borrow_capacity_after: i128,
+    pub borrow_limit_pct_before: i128,
+    pub borrow_limit_pct_after: i128,
+    pub position_before: i128,
+    pub position_after: i128,
+    pub gas_estimate: i128,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct IRMParams {
+    pub base_rate: i128,
+    pub slope: i128,
+    pub target_utilization: i128,
+    pub max_utilization: i128,
 }
