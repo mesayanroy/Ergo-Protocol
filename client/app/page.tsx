@@ -221,11 +221,11 @@ export default function HomePage() {
               colorBack="#00000000"
               colorFront="#5b06f8fb"
               shape="sphere"
-              type="8x8"
+              type="4x4"
               size={2}
               speed={1}
               scale={0.6}
-              offsetX={0.48}
+              offsetX={0.50}
             />
           </div>
           {/* Subtle edge fades to integrate visual boundaries with header/footer colors */}

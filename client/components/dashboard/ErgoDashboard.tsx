@@ -8,7 +8,7 @@ import { buildSupplyTx, buildBorrowTx, buildRepayTx, buildWithdrawTx, simulateTr
 import { getWalletBalance } from "../../lib/positions";
 import { getLivePrice } from "../../lib/oracle";
 import { server, NETWORK_PASSPHRASE, simulateContractCall } from "../../lib/rpc";
-import { TransactionBuilder, Horizon, Operation, Asset, Address, nativeToScVal, scValToNative } from "@stellar/stellar-sdk";
+import { TransactionBuilder, Horizon, Operation, Asset, Address, nativeToScVal, scValToNative, Contract, xdr } from "@stellar/stellar-sdk";
 import { TransactionOverview } from "../TransactionOverview";
 import { IRMChart } from "../IRMChart";
 import { motion, AnimatePresence } from "framer-motion";
@@ -262,6 +262,31 @@ export default function ErgoDashboard() {
   const [selectedAssetId, setSelectedAssetId] = useState<string>("usdc_shared");
   const [txAmount, setTxAmount] = useState<string>("");
 
+  // Compliance states
+  const [marketComplianceStates, setMarketComplianceStates] = useState<Record<string, { permissioned: boolean; allowed: boolean; issuer: string }>>({});
+  const [complianceAdmin, setComplianceAdmin] = useState<string>("");
+  const [complianceSubmitting, setComplianceSubmitting] = useState(false);
+
+  // Compliance Form States
+  const [allowlistMarket, setAllowlistMarket] = useState("usdc_shared");
+  const [allowlistUser, setAllowlistUser] = useState("");
+  const [allowlistAllowed, setAllowlistAllowed] = useState(true);
+
+  const [flagMarket, setFlagMarket] = useState("usdc_shared");
+  const [flagPermissioned, setFlagPermissioned] = useState(true);
+
+  const [issuerMarket, setIssuerMarket] = useState("usdc_shared");
+  const [issuerAddress, setIssuerAddress] = useState("");
+
+  const [clawbackMarket, setClawbackMarket] = useState("usdc_shared");
+  const [clawbackUser, setClawbackUser] = useState("");
+  const [clawbackAmount, setClawbackAmount] = useState("");
+
+  const [checkerMarket, setCheckerMarket] = useState("usdc_shared");
+  const [checkerUser, setCheckerUser] = useState("");
+  const [checkerResult, setCheckerResult] = useState<boolean | null>(null);
+  const [checkerLoading, setCheckerLoading] = useState(false);
+
   const assetPools = useMemo(() => {
     const list = markets.length > 0 ? markets : [
       { id: "usdc_shared", symbol: "USDC", name: "USD Coin", logo: "/logo_usdc.png", price: 1.0, poolType: "Shared Core", collateralFactor: 0.85, totalSupplied: 52400000, totalBorrowed: 31200000, borrowRate: 4.25, supplyRate: 2.85 },
@@ -289,9 +314,135 @@ export default function ErgoDashboard() {
         walletBalance: walletBalances[balanceKey] || 0,
         supplied: pos ? pos.supplied : 0,
         borrowed: pos ? pos.borrowed : 0,
+        poolType: m.poolType || (m.id.toLowerCase().includes("shared") ? "Shared Core" : "Satellite"),
       };
     });
   }, [markets, userPositions, walletBalances]);
+
+  const fetchComplianceStates = useCallback(async () => {
+    const complianceId = process.env.NEXT_PUBLIC_COMPLIANCE_CONTRACT_ID || '';
+    if (!complianceId) return;
+
+    const states: Record<string, { permissioned: boolean; allowed: boolean; issuer: string }> = {};
+
+    try {
+      // 1. Get admin
+      try {
+        const adminSim = await simulateContractCall(complianceId, 'get_admin', []);
+        if ((adminSim as any).result?.retval) {
+          const nativeAdmin = scValToNative((adminSim as any).result.retval);
+          if (nativeAdmin) setComplianceAdmin(nativeAdmin.toString());
+        }
+      } catch (err) {
+        console.warn("Failed to fetch compliance admin", err);
+      }
+
+      await Promise.all(assetPools.map(async (pool) => {
+        const symVal = xdr.ScVal.scvSymbol(pool.id);
+        
+        // 1. Check is_market_permissioned
+        let permissioned = false;
+        try {
+          const permSim = await simulateContractCall(complianceId, 'is_market_permissioned', [symVal]);
+          if ((permSim as any).result?.retval) {
+            permissioned = scValToNative((permSim as any).result.retval);
+          }
+        } catch (err) {
+          console.warn(`Failed to fetch permissioned status for ${pool.id}`, err);
+        }
+
+        // 2. Check if user is allowed
+        let allowed = false;
+        if (walletAddress) {
+          try {
+            const userAddrVal = Address.fromString(walletAddress).toScVal();
+            const allowedSim = await simulateContractCall(complianceId, 'is_allowed', [symVal, userAddrVal]);
+            if ((allowedSim as any).result?.retval) {
+              allowed = scValToNative((allowedSim as any).result.retval);
+            }
+          } catch (err) {
+            console.warn(`Failed to fetch allowed status for user on ${pool.id}`, err);
+          }
+        }
+
+        // 3. Get issuer
+        let issuer = "";
+        try {
+          const issuerSim = await simulateContractCall(complianceId, 'get_issuer', [symVal]);
+          if ((issuerSim as any).result?.retval) {
+            const nativeIssuer = scValToNative((issuerSim as any).result.retval);
+            if (nativeIssuer) issuer = nativeIssuer.toString();
+          }
+        } catch (err) {
+          console.warn(`Failed to fetch issuer for ${pool.id}`, err);
+        }
+
+        states[pool.id] = { permissioned, allowed, issuer };
+      }));
+
+      setMarketComplianceStates(states);
+    } catch (err) {
+      console.error("Error fetching compliance states:", err);
+    }
+  }, [walletAddress, assetPools]);
+
+  useEffect(() => {
+    fetchComplianceStates();
+  }, [walletAddress, markets]);
+
+  const handleComplianceTx = async (method: string, args: any[]) => {
+    if (!walletAddress) {
+      alert("Please connect wallet first");
+      return;
+    }
+    setComplianceSubmitting(true);
+    try {
+      const complianceId = process.env.NEXT_PUBLIC_COMPLIANCE_CONTRACT_ID || '';
+      const account = await server.getAccount(walletAddress);
+      const contract = new Contract(complianceId);
+      
+      const op = contract.call(method, ...args);
+      const tx = new TransactionBuilder(account, {
+        fee: '100',
+        networkPassphrase: NETWORK_PASSPHRASE
+      })
+      .addOperation(op)
+      .setTimeout(60)
+      .build();
+
+      const preparedTx = await server.prepareTransaction(tx);
+      const signedXdr = await signTransaction(preparedTx.toXDR());
+      const res = await server.sendTransaction(TransactionBuilder.fromXDR(signedXdr, NETWORK_PASSPHRASE));
+      
+      if (res.status === "ERROR") {
+        const errorDetail = (res as any).errorResultXdr 
+          || ((res as any).errorResult ? JSON.stringify((res as any).errorResult) : null) 
+          || JSON.stringify(res);
+        throw new Error(`Transaction execution failed: ${errorDetail}`);
+      }
+      
+      // Poll transaction status
+      let status: any = res.status;
+      for (let i = 0; i < 10; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        const txResult = await server.getTransaction(res.hash);
+        status = txResult.status;
+        if (status === "SUCCESS" || status === "FAILED") break;
+      }
+
+      if (status !== "SUCCESS") {
+        throw new Error("Transaction execution failed or timed out.");
+      }
+
+      alert(`Transaction executed successfully! Hash: ${res.hash}`);
+      fetchComplianceStates();
+    } catch (err: any) {
+      console.error(err);
+      alert(`Transaction failed: ${err.message || err}`);
+    } finally {
+      setComplianceSubmitting(false);
+    }
+  };
 
   // Governance wizard and timelock queue states
   const [isCreatePropModalOpen, setIsCreatePropModalOpen] = useState(false);
@@ -887,7 +1038,8 @@ export default function ErgoDashboard() {
               { id: "backstop", label: "Backstop Manager", icon: Award },
               { id: "faucet", label: "Testnet Faucet", icon: Sliders },
               { id: "performance", label: "Yield Attribution", icon: TrendingUp },
-              { id: "risk", label: "Risk controls", icon: Shield },
+              { id: "risk", label: "Risk controls", icon: Activity },
+              { id: "compliance", label: "Compliance Portal", icon: Shield },
               { id: "transactions", label: "Transactions", icon: ArrowLeftRight },
               { id: "governance", label: "Governance", icon: CircleDot },
               { id: "settings", label: "Settings", icon: UserCog },
@@ -1374,6 +1526,9 @@ export default function ErgoDashboard() {
                                 <td className="py-3 flex items-center gap-2">
                                   {renderAssetLogo(pool.logo, "size-5")}
                                   <span className="font-bold text-white font-mono">{pool.symbol}</span>
+                                  {marketComplianceStates[pool.id]?.permissioned && (
+                                    <Shield className="size-3 text-purple-400" />
+                                  )}
                                 </td>
                                 <td className="py-3 text-right font-mono text-white">{pool.supplied.toLocaleString()}</td>
                                 <td className="py-3 text-right font-mono text-brandLime">+{pool.supplyApy.toFixed(2)}%</td>
@@ -1428,6 +1583,9 @@ export default function ErgoDashboard() {
                                   <td className="py-3 flex items-center gap-2">
                                     {renderAssetLogo(pool.logo, "size-5")}
                                     <span className="font-bold text-white font-mono">{pool.symbol}</span>
+                                    {marketComplianceStates[pool.id]?.permissioned && (
+                                      <Shield className="size-3 text-purple-400" />
+                                    )}
                                   </td>
                                   <td className="py-3 text-right font-mono text-white">{pool.borrowed.toLocaleString()}</td>
                                   <td className="py-3 text-right font-mono text-brandPurple">+{pool.borrowApy.toFixed(2)}%</td>
@@ -1502,6 +1660,12 @@ export default function ErgoDashboard() {
                                     }`}>
                                       {poolType}
                                     </span>
+                                    {marketComplianceStates[pool.id]?.permissioned && (
+                                      <span className="flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full bg-[#7c3aed]/10 text-[#7c3aed] border border-[#7c3aed]/20">
+                                        <Shield className="size-2.5" />
+                                        Permissioned
+                                      </span>
+                                    )}
                                     <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
                                       E-Mode: 90% LTV
                                     </span>
@@ -1618,6 +1782,12 @@ export default function ErgoDashboard() {
                                     <span className="bg-[#7c3aed]/10 text-[#7c3aed] border border-[#7c3aed]/20 text-[9px] font-bold px-2 py-0.5 rounded-full">
                                       {poolType}
                                     </span>
+                                    {marketComplianceStates[pool.id]?.permissioned && (
+                                      <span className="flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                                        <Shield className="size-2.5" />
+                                        Permissioned
+                                      </span>
+                                    )}
                                     {pool.id.includes("xlm") && (
                                       <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
                                         E-Mode: 90% LTV
@@ -2220,6 +2390,462 @@ export default function ErgoDashboard() {
                 </div>
               )}
               
+              {/* ────────────────────────────────────────────────────────
+                  7.5. COMPLIANCE PANEL VIEW
+                  ──────────────────────────────────────────────────────── */}
+              {activeSection === "compliance" && (() => {
+                const isUserAdmin = walletAddress && complianceAdmin && walletAddress.toLowerCase() === complianceAdmin.toLowerCase();
+                const isUserIssuer = walletAddress && Object.values(marketComplianceStates).some(s => s.issuer && s.issuer.toLowerCase() === walletAddress.toLowerCase());
+                
+                let userRole = "Public Wallet 👤";
+                if (isUserAdmin && isUserIssuer) {
+                  userRole = "Admin & Market Issuer 🛡️🏢";
+                } else if (isUserAdmin) {
+                  userRole = "Compliance Admin 🛡️";
+                } else if (isUserIssuer) {
+                  userRole = "Asset Issuer 🏢";
+                }
+
+                const checkUserStatus = async () => {
+                  if (!checkerUser) {
+                    alert("Please enter a wallet address to check");
+                    return;
+                  }
+                  setCheckerLoading(true);
+                  setCheckerResult(null);
+                  try {
+                    const complianceId = process.env.NEXT_PUBLIC_COMPLIANCE_CONTRACT_ID || '';
+                    const symVal = xdr.ScVal.scvSymbol(checkerMarket);
+                    const userAddrVal = Address.fromString(checkerUser).toScVal();
+                    const sim = await simulateContractCall(complianceId, 'is_allowed', [symVal, userAddrVal]);
+                    if ((sim as any).result?.retval) {
+                      const allowed = scValToNative((sim as any).result.retval);
+                      setCheckerResult(allowed);
+                    } else {
+                      setCheckerResult(false);
+                    }
+                  } catch (e: any) {
+                    console.error(e);
+                    alert(`Simulation failed: ${e.message || e}`);
+                  } finally {
+                    setCheckerLoading(false);
+                  }
+                };
+
+                return (
+                  <div className="flex flex-col gap-6 font-sans">
+                    {/* Header Banner */}
+                    <div className="rounded-2xl border border-white/5 bg-[#121316]/50 p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div>
+                        <h3 className="text-base font-bold text-white flex items-center gap-2">
+                          <Shield className="size-5 text-[#7c3aed]" />
+                          Compliance & RWA Control Center
+                        </h3>
+                        <p className="text-xs text-brandGray mt-1">Manage institutional allowlists, market permission flags, and asset clawbacks.</p>
+                      </div>
+                      <div className="flex flex-col gap-1 text-right shrink-0">
+                        <span className="text-[10px] text-brandGray uppercase font-bold tracking-wider">Access Role</span>
+                        <span className="text-xs font-bold text-brandLime">{userRole}</span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                      {/* Left Column: Market States & Info */}
+                      <div className="lg:col-span-1 flex flex-col gap-6">
+                        {/* Market Registry Status */}
+                        <div className="p-6 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col gap-4">
+                          <h4 className="text-xs font-bold text-white uppercase tracking-wider">Market Registry</h4>
+                          <div className="flex flex-col gap-3">
+                            {assetPools.map((pool) => {
+                              const state = marketComplianceStates[pool.id] || { permissioned: false, allowed: false, issuer: "" };
+                              return (
+                                <div key={pool.id} className="p-3 rounded-xl bg-white/5 border border-white/5 flex items-center justify-between text-xs">
+                                  <div className="flex items-center gap-2">
+                                    {renderAssetLogo(pool.logo, "size-6")}
+                                    <div>
+                                      <p className="font-bold text-white font-mono">{pool.symbol}</p>
+                                      <p className="text-[9px] text-brandGray truncate max-w-[120px]" title={state.issuer}>
+                                        {state.issuer ? `Issuer: ${state.issuer.slice(0,4)}...${state.issuer.slice(-4)}` : "Issuer: None"}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <div className="flex flex-col items-end gap-1">
+                                    <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${
+                                      state.permissioned 
+                                        ? "bg-purple-500/10 text-purple-400 border border-purple-500/15" 
+                                        : "bg-green-500/10 text-green-400 border border-green-500/15"
+                                    }`}>
+                                      {state.permissioned ? "Permissioned" : "Public"}
+                                    </span>
+                                    {state.permissioned && walletAddress && (
+                                      <span className={`text-[8px] ${state.allowed ? "text-brandLime font-semibold" : "text-red-400"}`}>
+                                        {state.allowed ? "Authorized" : "Blocked"}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Protocol Settings Summary */}
+                        <div className="p-6 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col gap-3.5 text-xs">
+                          <h4 className="text-xs font-bold text-white uppercase tracking-wider">System Parameters</h4>
+                          <div className="flex flex-col gap-2.5">
+                            <div className="flex justify-between">
+                              <span className="text-brandGray">Compliance Contract:</span>
+                              <span className="font-mono text-white select-all">{process.env.NEXT_PUBLIC_COMPLIANCE_CONTRACT_ID ? `${process.env.NEXT_PUBLIC_COMPLIANCE_CONTRACT_ID.slice(0,6)}...${process.env.NEXT_PUBLIC_COMPLIANCE_CONTRACT_ID.slice(-6)}` : "Not Configured"}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-brandGray">Admin Address:</span>
+                              <span className="font-mono text-white select-all">{complianceAdmin ? `${complianceAdmin.slice(0,6)}...${complianceAdmin.slice(-6)}` : "None"}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-brandGray">Connected Wallet:</span>
+                              <span className="font-mono text-brandLime truncate max-w-[120px]">{walletAddress ? `${walletAddress.slice(0,6)}...${walletAddress.slice(-6)}` : "Disconnected"}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Right Column: Compliance Management Portal Actions */}
+                      <div className="lg:col-span-2 flex flex-col gap-6">
+                        
+                        {/* 1. ALLOWLIST MANAGEMENT PANEL */}
+                        <div className="p-6 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col gap-4">
+                          <div>
+                            <h4 className="text-xs font-bold text-white uppercase tracking-wider">Allowlist Manager</h4>
+                            <p className="text-[10px] text-brandGray mt-0.5">Authorise or revoke user wallet access for permissioned asset markets.</p>
+                          </div>
+                          
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="flex flex-col gap-1.5">
+                              <label className="text-[9px] font-bold text-brandGray uppercase tracking-wider">Select Market</label>
+                              <select
+                                value={allowlistMarket}
+                                onChange={(e) => setAllowlistMarket(e.target.value)}
+                                className="bg-[#121316] border border-white/5 rounded-xl px-3 py-2 text-xs text-white outline-none"
+                              >
+                                {assetPools.map(p => (
+                                  <option key={p.id} value={p.id}>{p.symbol} Pool ({p.poolType})</option>
+                                ))}
+                              </select>
+                            </div>
+
+                            <div className="flex flex-col gap-1.5 md:col-span-2">
+                              <label className="text-[9px] font-bold text-brandGray uppercase tracking-wider">User Wallet Address</label>
+                              <input
+                                type="text"
+                                placeholder="G..."
+                                value={allowlistUser}
+                                onChange={(e) => setAllowlistUser(e.target.value)}
+                                className="bg-[#121316] border border-white/5 rounded-xl px-3 py-2 text-xs text-white placeholder-brandGray/40 outline-none w-full"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between mt-2 flex-wrap gap-4">
+                            <div className="flex items-center gap-3">
+                              <span className="text-xs text-brandGray font-medium">Authorization Status:</span>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setAllowlistAllowed(true)}
+                                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                                    allowlistAllowed 
+                                      ? "bg-green-500/10 text-green-400 border border-green-500/20" 
+                                      : "bg-white/5 text-brandGray border border-white/5"
+                                  }`}
+                                >
+                                  Authorize Access
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setAllowlistAllowed(false)}
+                                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                                    !allowlistAllowed 
+                                      ? "bg-red-500/10 text-red-400 border border-red-500/20" 
+                                      : "bg-white/5 text-brandGray border border-white/5"
+                                  }`}
+                                >
+                                  Revoke Access
+                                </button>
+                              </div>
+                            </div>
+
+                            <button
+                              onClick={() => {
+                                if (!allowlistUser) {
+                                  alert("Please enter target user address");
+                                  return;
+                                }
+                                handleComplianceTx("add_to_allowlist", [
+                                  xdr.ScVal.scvSymbol(allowlistMarket),
+                                  Address.fromString(allowlistUser).toScVal(),
+                                  nativeToScVal(allowlistAllowed)
+                                ]);
+                              }}
+                              disabled={complianceSubmitting}
+                              className="px-4 py-2 rounded-xl bg-[#7c3aed] hover:bg-[#7c3aed]/90 text-white font-bold text-xs tracking-wider transition-all disabled:opacity-50"
+                            >
+                              {complianceSubmitting ? "Submitting..." : "Update Allowlist"}
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* 2. ADMIN MARKET FLAGS CONFIGURATOR */}
+                        {isUserAdmin && (
+                          <div className="p-6 rounded-2xl border border-[#7c3aed]/20 bg-[#121316]/30 flex flex-col gap-5">
+                            <div>
+                              <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                                <span className="size-2 rounded-full bg-purple-500 animate-pulse" />
+                                Admin Market Configurator
+                              </h4>
+                              <p className="text-[10px] text-brandGray mt-0.5">Toggle permission requirements and configure market issuer addresses.</p>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                              {/* Toggle Permission Flag */}
+                              <div className="flex flex-col gap-3.5 p-4 bg-white/5 rounded-xl border border-white/5">
+                                <h5 className="text-[10px] font-bold text-white uppercase tracking-wider">Toggle Permissioned Status</h5>
+                                <div className="flex flex-col gap-3">
+                                  <div className="flex flex-col gap-1.5">
+                                    <label className="text-[9px] text-brandGray font-bold uppercase">Select Market</label>
+                                    <select
+                                      value={flagMarket}
+                                      onChange={(e) => setFlagMarket(e.target.value)}
+                                      className="bg-[#121316] border border-white/5 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none"
+                                    >
+                                      {assetPools.map(p => (
+                                        <option key={p.id} value={p.id}>{p.symbol} Pool</option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                  
+                                  <div className="flex items-center justify-between mt-2">
+                                    <label className="text-xs text-brandGray flex items-center gap-1.5 select-none cursor-pointer">
+                                      <input 
+                                        type="checkbox" 
+                                        checked={flagPermissioned} 
+                                        onChange={(e) => setFlagPermissioned(e.target.checked)}
+                                        className="size-3.5 rounded border-white/5 accent-[#7c3aed]"
+                                      />
+                                      Require Allowlist
+                                    </label>
+
+                                    <button
+                                      onClick={() => {
+                                        handleComplianceTx("flag_market_permissioned", [
+                                          Address.fromString(walletAddress).toScVal(),
+                                          xdr.ScVal.scvSymbol(flagMarket),
+                                          nativeToScVal(flagPermissioned)
+                                        ]);
+                                      }}
+                                      disabled={complianceSubmitting}
+                                      className="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs transition-all disabled:opacity-50"
+                                    >
+                                      Save Config
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Assign Issuer Address */}
+                              <div className="flex flex-col gap-3.5 p-4 bg-white/5 rounded-xl border border-white/5">
+                                <h5 className="text-[10px] font-bold text-white uppercase tracking-wider">Assign Market Issuer</h5>
+                                <div className="flex flex-col gap-3">
+                                  <div className="flex flex-col gap-1.5">
+                                    <label className="text-[9px] text-brandGray font-bold uppercase">Select Market</label>
+                                    <select
+                                      value={issuerMarket}
+                                      onChange={(e) => setIssuerMarket(e.target.value)}
+                                      className="bg-[#121316] border border-white/5 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none"
+                                    >
+                                      {assetPools.map(p => (
+                                        <option key={p.id} value={p.id}>{p.symbol} Pool</option>
+                                      ))}
+                                    </select>
+                                  </div>
+
+                                  <div className="flex flex-col gap-1.5">
+                                    <label className="text-[9px] text-brandGray font-bold uppercase">Issuer Address</label>
+                                    <input
+                                      type="text"
+                                      placeholder="G..."
+                                      value={issuerAddress}
+                                      onChange={(e) => setIssuerAddress(e.target.value)}
+                                      className="w-full bg-[#121316] border border-white/5 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-brandGray/40 outline-none"
+                                    />
+                                  </div>
+
+                                  <button
+                                    onClick={() => {
+                                      if (!issuerAddress) {
+                                        alert("Please enter issuer address");
+                                        return;
+                                      }
+                                      handleComplianceTx("set_issuer", [
+                                        Address.fromString(walletAddress).toScVal(),
+                                        xdr.ScVal.scvSymbol(issuerMarket),
+                                        Address.fromString(issuerAddress).toScVal()
+                                      ]);
+                                    }}
+                                    disabled={complianceSubmitting}
+                                    className="w-full mt-1.5 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs transition-all disabled:opacity-50"
+                                  >
+                                    Set Issuer Authority
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* 3. ISSUER CLAWBACK PORTAL */}
+                        {isUserIssuer && (
+                          <div className="p-6 rounded-2xl border border-red-500/20 bg-[#121316]/30 flex flex-col gap-4">
+                            <div>
+                              <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                                <AlertTriangle className="size-4 text-red-500" />
+                                Institutional Clawback Panel
+                              </h4>
+                              <p className="text-[10px] text-brandGray mt-0.5">Claw back active lending/borrow positions of blacklisted entities directly from storage.</p>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                              <div className="flex flex-col gap-1.5">
+                                <label className="text-[9px] font-bold text-brandGray uppercase tracking-wider">Select Market</label>
+                                <select
+                                  value={clawbackMarket}
+                                  onChange={(e) => setClawbackMarket(e.target.value)}
+                                  className="bg-[#121316] border border-white/5 rounded-xl px-3 py-2 text-xs text-white outline-none"
+                                >
+                                  {assetPools.map(p => (
+                                    <option key={p.id} value={p.id}>{p.symbol} Pool</option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div className="flex flex-col gap-1.5">
+                                <label className="text-[9px] font-bold text-brandGray uppercase tracking-wider">Target Wallet</label>
+                                <input
+                                  type="text"
+                                  placeholder="G..."
+                                  value={clawbackUser}
+                                  onChange={(e) => setClawbackUser(e.target.value)}
+                                  className="bg-[#121316] border border-white/5 rounded-xl px-3 py-2 text-xs text-white placeholder-brandGray/40 outline-none w-full"
+                                />
+                              </div>
+
+                              <div className="flex flex-col gap-1.5">
+                                <label className="text-[9px] font-bold text-brandGray uppercase tracking-wider">Clawback Amount</label>
+                                <input
+                                  type="number"
+                                  placeholder="0.00"
+                                  value={clawbackAmount}
+                                  onChange={(e) => setClawbackAmount(e.target.value)}
+                                  className="bg-[#121316] border border-white/5 rounded-xl px-3 py-2 text-xs text-white placeholder-brandGray/40 outline-none w-full"
+                                />
+                              </div>
+                            </div>
+
+                            <div className="flex justify-end mt-2">
+                              <button
+                                onClick={() => {
+                                  if (!clawbackUser || !clawbackAmount) {
+                                    alert("Please enter target address and amount");
+                                    return;
+                                  }
+                                  const rawAmt = BigInt(Math.floor(parseFloat(clawbackAmount) * 10000000));
+                                  handleComplianceTx("clawback_position", [
+                                    Address.fromString(walletAddress).toScVal(),
+                                    xdr.ScVal.scvSymbol(clawbackMarket),
+                                    Address.fromString(clawbackUser).toScVal(),
+                                    nativeToScVal(rawAmt)
+                                  ]);
+                                }}
+                                disabled={complianceSubmitting}
+                                className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs tracking-wider transition-all disabled:opacity-50 flex items-center gap-1.5"
+                              >
+                                <AlertTriangle className="size-3.5" />
+                                Execute Clawback Position
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* 4. PUBLIC ALLOWLIST STATUS CHECKER */}
+                        <div className="p-6 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col gap-4">
+                          <div>
+                            <h4 className="text-xs font-bold text-white uppercase tracking-wider font-semibold">Public Allowlist Status Checker</h4>
+                            <p className="text-[10px] text-brandGray mt-0.5">Check whether any Stellar account is authorized on a permissioned market.</p>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="flex flex-col gap-1.5">
+                              <label className="text-[9px] font-bold text-brandGray uppercase tracking-wider">Select Market</label>
+                              <select
+                                value={checkerMarket}
+                                onChange={(e) => setCheckerMarket(e.target.value)}
+                                className="bg-[#121316] border border-white/5 rounded-xl px-3 py-2 text-xs text-white outline-none"
+                              >
+                                {assetPools.map(p => (
+                                  <option key={p.id} value={p.id}>{p.symbol} Pool</option>
+                                ))}
+                              </select>
+                            </div>
+
+                            <div className="flex flex-col gap-1.5 md:col-span-2">
+                              <label className="text-[9px] font-bold text-brandGray uppercase tracking-wider">Wallet Address to Audit</label>
+                              <div className="flex gap-2">
+                                <input
+                                  type="text"
+                                  placeholder="G..."
+                                  value={checkerUser}
+                                  onChange={(e) => setCheckerUser(e.target.value)}
+                                  className="flex-1 bg-[#121316] border border-white/5 rounded-xl px-3 py-2 text-xs text-white placeholder-brandGray/40 outline-none w-full"
+                                />
+                                <button
+                                  onClick={checkUserStatus}
+                                  disabled={checkerLoading}
+                                  className="px-4 py-2 rounded-xl bg-[#d4ff3f] hover:bg-[#d4ff3f]/95 text-[#0b0b0d] font-bold text-xs tracking-wider transition-all disabled:opacity-50"
+                                >
+                                  {checkerLoading ? "Auditing..." : "Audit Address"}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+
+                          {checkerResult !== null && (
+                            <div className={`p-4 rounded-xl text-xs flex items-center justify-between ${
+                              checkerResult 
+                                ? "bg-green-500/5 border border-green-500/10 text-green-400" 
+                                : "bg-red-500/5 border border-red-500/10 text-red-400"
+                            }`}>
+                              <span className="font-semibold">Audit Result:</span>
+                              <span className="font-bold flex items-center gap-1.5 uppercase font-mono">
+                                {checkerResult ? (
+                                  <>
+                                    <Check className="size-4 text-green-500" />
+                                    Authorized on Allowlist 🟢
+                                  </>
+                                ) : (
+                                  <>
+                                    <X className="size-4 text-red-500" />
+                                    Blocked / Unauthorized 🔴
+                                  </>
+                                )}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Backstop Manager View */}
               {activeSection === "backstop" && (() => {
                 const totalBackstopDeposits = backstopPools.reduce((acc, p) => acc + p.size, 0);
@@ -2418,19 +3044,36 @@ export default function ErgoDashboard() {
                   />
                 )}
 
-                {txError && (
-                  <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs">
-                    {txError}
-                  </div>
-                )}
+                {(() => {
+                  const isComplianceBlocked = marketComplianceStates[activePool.id]?.permissioned && !marketComplianceStates[activePool.id]?.allowed;
+                  return (
+                    <>
+                      {isComplianceBlocked && (
+                        <div className="p-4 rounded-xl border border-red-500/10 bg-red-500/5 text-red-400 text-xs flex flex-col gap-1.5">
+                          <div className="flex items-center gap-2 font-bold text-red-500">
+                            <AlertTriangle className="size-4" />
+                            Compliance Block Active
+                          </div>
+                          <p>Your wallet address is not on the compliance allowlist for this market. Please submit KYC / register for access with the market issuer.</p>
+                        </div>
+                      )}
 
-                <button
-                  onClick={handleTxSubmit}
-                  disabled={txSubmitting}
-                  className="w-full py-4 rounded-2xl bg-brandLime disabled:opacity-50 hover:bg-brandLime/90 text-brandDark font-bold text-sm tracking-wide transition-all shadow-[0_0_20px_rgba(212,255,63,0.15)] mt-2"
-                >
-                  {txSubmitting ? "Submitting to Soroban..." : "Verify and Sign Transaction"}
-                </button>
+                      {txError && (
+                        <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs">
+                          {txError}
+                        </div>
+                      )}
+
+                      <button
+                        onClick={handleTxSubmit}
+                        disabled={isComplianceBlocked || txSubmitting}
+                        className="w-full py-4 rounded-2xl bg-brandLime disabled:opacity-30 disabled:cursor-not-allowed hover:bg-brandLime/90 text-brandDark font-bold text-sm tracking-wide transition-all shadow-[0_0_20px_rgba(212,255,63,0.15)] mt-2"
+                      >
+                        {isComplianceBlocked ? "Compliance Access Required" : txSubmitting ? "Submitting to Soroban..." : "Verify and Sign Transaction"}
+                      </button>
+                    </>
+                  );
+                })()}
               </div>
             </motion.div>
           </div>

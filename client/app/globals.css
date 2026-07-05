@@ -5,6 +5,7 @@
 :root {
   color-scheme: dark;
   --font-instrument-sans: "Instrument Sans", system-ui, sans-serif;
+  --font-outfit: var(--font-outfit), "Outfit", system-ui, sans-serif;
 }
 
 @layer base {
@@ -18,7 +19,7 @@
       radial-gradient(circle at 90% 80%, rgba(124, 58, 237, 0.06) 0%, transparent 55%),
       radial-gradient(circle at 50% 50%, rgba(11, 11, 13, 1) 0%, rgba(11, 11, 13, 1) 100%);
     color: #f5f5f2;
-    font-family: var(--font-instrument-sans);
+    font-family: var(--font-outfit), system-ui, sans-serif;
     scroll-behavior: smooth;
     overflow-x: hidden;
   }
@@ -214,7 +215,7 @@
   animation: pulseGlow 3s infinite ease-in-out;
 }
 
-/* Ensure absolute fonts are Instrument Sans and sans-serif */
+/* Ensure absolute fonts are Outfit and sans-serif */
 h1, h2, h3, h4, h5, h6, p, a, button, span, div, li, code {
-  font-family: var(--font-instrument-sans), system-ui, sans-serif !important;
+  font-family: var(--font-outfit), system-ui, sans-serif !important;
 }

@@ -69,4 +69,24 @@ impl ComplianceContract {
     ) -> Result<(), Error> {
         clawback::clawback_position(&env, issuer, market_id, user, amount)
     }
+
+    /// Checks if a market is permissioned.
+    pub fn is_market_permissioned(env: Env, market_id: Symbol) -> bool {
+        storage::is_market_permissioned(&env, market_id)
+    }
+
+    /// Checks if a user is allowlisted for a market.
+    pub fn is_allowed(env: Env, market_id: Symbol, user: Address) -> bool {
+        storage::is_allowed(&env, market_id, user)
+    }
+
+    /// Gets the issuer for a market.
+    pub fn get_issuer(env: Env, market_id: Symbol) -> Option<Address> {
+        storage::get_issuer(&env, market_id)
+    }
+
+    /// Gets the compliance admin address.
+    pub fn get_admin(env: Env) -> Option<Address> {
+        storage::get_admin(&env)
+    }
 }
