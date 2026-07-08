@@ -1,3 +1,13 @@
+-- =========================================================================
+-- IMPORTANT INSTRUCTIONS FOR SUPABASE SETUP:
+-- DO NOT import this file as a CSV/Spreadsheet in the Supabase Table Editor!
+-- Instead:
+-- 1. Copy the entire SQL content of this file.
+-- 2. Open your Supabase Dashboard.
+-- 3. Go to the "SQL Editor" tab (SQL Query console).
+-- 4. Click "New Query", paste this SQL code, and click "Run".
+-- =========================================================================
+
 -- Prices: cached oracle feed prices
 CREATE TABLE IF NOT EXISTS prices (
   asset_symbol VARCHAR(12) PRIMARY KEY,

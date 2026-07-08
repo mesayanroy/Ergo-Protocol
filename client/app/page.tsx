@@ -237,8 +237,8 @@ export default function HomePage() {
         <div className="max-w-7xl mx-auto px-6 relative z-10 w-full">
           <div className="max-w-2xl">
             {/* Title - Mix of Instrument Sans-Serif and Calligraphy Italics */}
-            <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl tracking-tight leading-tight mb-5 drop-shadow-[0_4px_20px_rgba(0,0,0,0.98)]">
-              <span className="bg-[#d4ff3f] text-black px-2.5 py-0.5 rounded mr-1.5 font-sans font-bold">Shared</span>
+            <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl tracking-tight leading-[1.25] mb-5 drop-shadow-[0_4px_20px_rgba(0,0,0,0.98)]">
+              <span className="bg-[#d4ff3f] text-black px-2 py-[2px] rounded mr-1.5 font-sans font-bold">Shared</span>
               <span className="font-sans font-bold text-white">Liquidity.</span> <br />
               <span className="font-serif italic font-normal text-transparent bg-clip-text bg-gradient-to-r from-white via-brandLime to-brandLime/90 tracking-wide">Lending Protocol on Stellar.</span>
             </h1>
@@ -257,7 +257,7 @@ export default function HomePage() {
                 Try it now
               </a>
               <a 
-                href="#docs" 
+                href="/docs" 
                 className="px-8 py-4 rounded-full text-sm font-semibold tracking-wider text-white bg-white/5 border border-white/10 hover:bg-white/10 transition-all duration-300 text-center"
               >
                 Explore Docs
@@ -351,10 +351,8 @@ export default function HomePage() {
               </div>
 
               <div className="relative z-10">
-                <div className="w-12 h-12 rounded-xl bg-brandLime/10 border border-brandLime/20 flex items-center justify-center mb-6">
-                  <svg className="w-6 h-6 text-brandLime" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                  </svg>
+                <div className="w-12 h-12 rounded-xl bg-brandLime/10 border border-brandLime/20 flex items-center justify-center mb-6 font-mono text-sm font-bold tracking-tighter text-brandLime">
+                  01/→
                 </div>
                 <h3 className="text-xl sm:text-2xl font-bold text-white mb-2">Capital that grows</h3>
                 <p className="text-sm sm:text-base text-brandGray leading-relaxed">
@@ -379,10 +377,8 @@ export default function HomePage() {
               </div>
 
               <div className="relative z-10">
-                <div className="w-12 h-12 rounded-xl bg-brandPurple/10 border border-brandPurple/20 flex items-center justify-center mb-6">
-                  <svg className="w-6 h-6 text-brandPurple" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-                  </svg>
+                <div className="w-12 h-12 rounded-xl bg-brandPurple/10 border border-brandPurple/20 flex items-center justify-center mb-6 font-mono text-sm font-bold tracking-tighter text-brandPurple">
+                  02/→
                 </div>
                 <h3 className="text-xl sm:text-2xl font-bold text-white mb-2">Liquid and flexible</h3>
                 <p className="text-sm sm:text-base text-brandGray leading-relaxed">
@@ -407,10 +403,8 @@ export default function HomePage() {
               </div>
 
               <div className="relative z-10">
-                <div className="w-12 h-12 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center mb-6">
-                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                  </svg>
+                <div className="w-12 h-12 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center mb-6 font-mono text-sm font-bold tracking-tighter text-white">
+                  03/→
                 </div>
                 <h3 className="text-xl sm:text-2xl font-bold text-white mb-2">100% hands-free</h3>
                 <p className="text-sm sm:text-base text-brandGray leading-relaxed">
