@@ -436,11 +436,124 @@ export default function ErgoDashboard() {
 
       alert(`Transaction executed successfully! Hash: ${res.hash}`);
       fetchComplianceStates();
+      
+      let assetCode = "COMPLIANCE";
+      let txAmount = 0;
+      if (method === "add_to_allowlist") {
+        assetCode = "ALLOWLIST";
+      } else if (method === "flag_market_permissioned") {
+        assetCode = "MARKET_FLAG";
+      } else if (method === "set_issuer") {
+        assetCode = "SET_ISSUER";
+      } else if (method === "clawback_position") {
+        assetCode = "CLAWBACK";
+        txAmount = Number(clawbackAmount) || 0;
+      }
+      addTransactionHistoryEntry(method, assetCode, txAmount || 1, res.hash);
     } catch (err: any) {
       console.error(err);
       alert(`Transaction failed: ${err.message || err}`);
     } finally {
       setComplianceSubmitting(false);
+    }
+  };
+
+  const payProposalFee = async () => {
+    if (!walletAddress) {
+      alert("Please connect wallet first");
+      return;
+    }
+    if (!newPropTitle || !newPropTarget || !newPropAction || !newPropDesc) {
+      alert("Please fill in all parameter fields (Title, Target Contract, Action, Description) before submitting.");
+      return;
+    }
+    setIsPayingFee(true);
+    try {
+      const ergoTokenId = process.env.NEXT_PUBLIC_ERGO_TOKEN_CONTRACT_ID || '';
+      const governanceId = process.env.NEXT_PUBLIC_GOVERNANCE_CONTRACT_ID || '';
+      
+      const account = await server.getAccount(walletAddress);
+      const tokenContract = new Contract(ergoTokenId);
+      
+      const op = tokenContract.call(
+        "transfer",
+        Address.fromString(walletAddress).toScVal(),
+        Address.fromString(governanceId).toScVal(),
+        nativeToScVal(500_000_000n, { type: "i128" })
+      );
+
+      const tx = new TransactionBuilder(account, {
+        fee: '100',
+        networkPassphrase: NETWORK_PASSPHRASE
+      })
+      .addOperation(op)
+      .setTimeout(60)
+      .build();
+
+      const preparedTx = await server.prepareTransaction(tx);
+      const signedXdr = await signTransaction(preparedTx.toXDR());
+      const res = await server.sendTransaction(TransactionBuilder.fromXDR(signedXdr, NETWORK_PASSPHRASE));
+      
+      if (res.status === "ERROR") {
+        throw new Error(JSON.stringify(res));
+      }
+      
+      let status: any = res.status;
+      for (let i = 0; i < 10; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        const txResult = await server.getTransaction(res.hash);
+        status = txResult.status;
+        if (status === "SUCCESS" || status === "FAILED") break;
+      }
+
+      if (status !== "SUCCESS") {
+        throw new Error("Fee transaction execution failed or timed out.");
+      }
+
+      // Automatically publish proposal details to database backend
+      const publishRes = await fetch("/api/proposals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: newPropTitle,
+          description: newPropDesc,
+          proposer: walletAddress,
+          targetContract: newPropTarget,
+          actionName: newPropAction,
+        })
+      });
+
+      if (publishRes.ok) {
+        const created = await publishRes.json();
+        const newMapped = {
+          id: `ERP-${created.id}`,
+          rawId: created.id,
+          title: created.title,
+          description: created.description,
+          proposer: created.proposer,
+          votesFor: created.votes_for,
+          votesAgainst: created.votes_against,
+          hasVoted: false,
+          status: created.status,
+          endsIn: "5 days"
+        };
+        setProposals(prev => [newMapped, ...prev]);
+        addTransactionHistoryEntry("gov_create_prop", "ERGO", 50, res.hash);
+        alert(`Proposal ERP-${created.id} created successfully! Transaction hash is recorded: ${res.hash}`);
+        setIsCreatePropOpen(false);
+        setNewPropTitle("");
+        setNewPropTarget("");
+        setNewPropAction("");
+        setNewPropDesc("");
+        setFeePaidTxHash("");
+      } else {
+        alert("Fee paid successfully but failed to publish proposal to the database list. Please verify connection.");
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert(`Failed to complete proposal process: ${err.message || err}`);
+    } finally {
+      setIsPayingFee(false);
     }
   };
 
@@ -450,6 +563,10 @@ export default function ErgoDashboard() {
   const [newPropTarget, setNewPropTarget] = useState("");
   const [newPropAction, setNewPropAction] = useState("");
   const [newPropDesc, setNewPropDesc] = useState("");
+  const [selectedProposalId, setSelectedProposalId] = useState<number | null>(null);
+  const [isCreatePropOpen, setIsCreatePropOpen] = useState(false);
+  const [isPayingFee, setIsPayingFee] = useState(false);
+  const [feePaidTxHash, setFeePaidTxHash] = useState("");
   const [timelockQueue, setTimelockQueue] = useState([
     {
       id: "ERP-09",
@@ -584,20 +701,95 @@ export default function ErgoDashboard() {
     { id: 3, type: "warning", title: "LTV Threshold Alert", message: "USDC Collateral factor updated in proposal ERP-09", time: "5h ago", read: true },
   ]);
 
-  // Transaction history simulation
-  const [transactions, setTransactions] = useState([
-    { id: "tx-1", type: "SUPPLY", asset: "XLM", amount: 8000, hash: "c82b...f01e", date: "2026-07-01", time: "05:12" },
-    { id: "tx-2", type: "BORROW", asset: "XLM", amount: 2500, hash: "4fa3...9c18", date: "2026-07-01", time: "05:10" },
-    { id: "tx-3", type: "SUPPLY", asset: "USDC", amount: 1200, hash: "9e2a...3a1c", date: "2026-06-30", time: "18:42" },
-  ]);
+  // Transaction history state
+  const [transactions, setTransactions] = useState<any[]>([]);
 
   // E-mode & Credit Delegation states
   const [emodeEnabled, setEmodeEnabled] = useState(false);
   const [delegationAddress, setDelegationAddress] = useState("");
   const [delegationLimit, setDelegationLimit] = useState("500");
-  const [activeDelegations, setActiveDelegations] = useState<any[]>([
-    { address: "GBXV...DELEGATE", limit: 500, status: "Active" }
-  ]);
+  const [activeDelegations, setActiveDelegations] = useState<any[]>([]);
+
+  // Live ERGO Staking Rewards State
+  const [liveRewards, setLiveRewards] = useState<number>(0);
+
+  // Synchronize localStorage keys for connected walletAddress
+  useEffect(() => {
+    if (walletAddress) {
+      const keyTx = `ergo_txs_${walletAddress}`;
+      const cachedTxs = localStorage.getItem(keyTx);
+      if (cachedTxs) {
+        setTransactions(JSON.parse(cachedTxs));
+      } else {
+        const defaultTxs = [
+          { id: "tx-1", type: "SUPPLY", asset: "XLM", amount: 8000, hash: "c82b...f01e", date: "2026-07-01", time: "05:12" },
+          { id: "tx-2", type: "BORROW", asset: "XLM", amount: 2500, hash: "4fa3...9c18", date: "2026-07-01", time: "05:10" }
+        ];
+        setTransactions(defaultTxs);
+        localStorage.setItem(keyTx, JSON.stringify(defaultTxs));
+      }
+
+      const keyDel = `ergo_dels_${walletAddress}`;
+      const cachedDels = localStorage.getItem(keyDel);
+      if (cachedDels) {
+        setActiveDelegations(JSON.parse(cachedDels));
+      } else {
+        const defaultDels = [
+          { address: "GBXV5PPHD6UUXKLQ5K5ZRP34BR7NSJJLSS76NHH273QVA5GOV8777", limit: 500, status: "Active" }
+        ];
+        setActiveDelegations(defaultDels);
+        localStorage.setItem(keyDel, JSON.stringify(defaultDels));
+      }
+    } else {
+      setTransactions([]);
+      setActiveDelegations([]);
+    }
+  }, [walletAddress]);
+
+  const addTransactionHistoryEntry = (type: string, asset: string, amount: number | string, hash: string) => {
+    const cleanAmt = typeof amount === "number" ? amount : parseFloat(amount) || 0;
+    const newTx = {
+      id: `tx-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+      type: type.toUpperCase(),
+      asset,
+      amount: cleanAmt,
+      hash: hash.length > 12 ? hash.slice(0, 6) + "..." + hash.slice(-6) : hash,
+      date: new Date().toISOString().split("T")[0],
+      time: new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit" }),
+    };
+    setTransactions(prev => {
+      const next = [newTx, ...prev];
+      if (walletAddress) {
+        localStorage.setItem(`ergo_txs_${walletAddress}`, JSON.stringify(next));
+      }
+      return next;
+    });
+  };
+
+  // Ticking reward updates inside backstop contributions
+  useEffect(() => {
+    if (!walletAddress) {
+      setLiveRewards(0);
+      return;
+    }
+
+    const keyRew = `ergo_rewards_${walletAddress}`;
+    const cachedRew = localStorage.getItem(keyRew);
+    let currentRewards = cachedRew ? parseFloat(cachedRew) : 24.50;
+    setLiveRewards(currentRewards);
+
+    const userTotalStaked = Object.values(userBackstopBalances).reduce((acc, b) => acc + b, 0);
+
+    const interval = setInterval(() => {
+      // APR is 14.85%
+      const increment = userTotalStaked > 0 ? (userTotalStaked * 0.1485) / 31536000 : 0.000001;
+      currentRewards += increment;
+      setLiveRewards(currentRewards);
+      localStorage.setItem(keyRew, currentRewards.toString());
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [walletAddress, userBackstopBalances]);
 
   // Risk control health simulator
   const [simulatedCollateralOffset, setSimulatedCollateralOffset] = useState<number>(0);
@@ -668,6 +860,59 @@ export default function ErgoDashboard() {
   // Active pool selection details for modals
   const activePool = assetPools.find(p => p.id === selectedAssetId) || assetPools[0];
 
+  const userTotalStaked = useMemo(() => {
+    return Object.values(userBackstopBalances).reduce((acc, b) => acc + b, 0);
+  }, [userBackstopBalances]);
+
+  const monthlyYieldData = useMemo(() => {
+    let monthlyEarned = 0;
+    let monthlyPaid = 0;
+    
+    assetPools.forEach(pool => {
+      const price = prices[pool.id] || 1;
+      monthlyEarned += (pool.supplied * price * (pool.supplyApy / 100)) / 12;
+      monthlyPaid += (pool.borrowed * price * (pool.borrowApy / 100)) / 12;
+    });
+
+    if (monthlyEarned === 0 && monthlyPaid === 0) {
+      return [
+        { month: "Jan", earned: 120, paid: 25 },
+        { month: "Feb", earned: 180, paid: 40 },
+        { month: "Mar", earned: 210, paid: 35 },
+        { month: "Apr", earned: 290, paid: 60 },
+        { month: "May", earned: 310, paid: 75 },
+        { month: "Jun", earned: 345, paid: 75 },
+      ];
+    }
+
+    return [
+      { month: "Jan", earned: parseFloat((monthlyEarned * 0.75).toFixed(2)), paid: parseFloat((monthlyPaid * 0.70).toFixed(2)) },
+      { month: "Feb", earned: parseFloat((monthlyEarned * 0.85).toFixed(2)), paid: parseFloat((monthlyPaid * 0.80).toFixed(2)) },
+      { month: "Mar", earned: parseFloat((monthlyEarned * 0.90).toFixed(2)), paid: parseFloat((monthlyPaid * 0.85).toFixed(2)) },
+      { month: "Apr", earned: parseFloat((monthlyEarned * 0.95).toFixed(2)), paid: parseFloat((monthlyPaid * 0.90).toFixed(2)) },
+      { month: "May", earned: parseFloat((monthlyEarned * 0.98).toFixed(2)), paid: parseFloat((monthlyPaid * 0.95).toFixed(2)) },
+      { month: "Jun", earned: parseFloat(monthlyEarned.toFixed(2)), paid: parseFloat(monthlyPaid.toFixed(2)) },
+    ];
+  }, [assetPools, prices]);
+
+  const deviationFeeds = useMemo(() => {
+    const defaultFeeds = [
+      { asset: "USDC / USD", symbol: "USDC", dev: "0.01%", status: "Safe" },
+      { asset: "XLM / USD", symbol: "XLM", dev: "0.15%", status: "Safe" },
+      { asset: "EURC / USD", symbol: "EURC", dev: "0.05%", status: "Safe" },
+      { asset: "wBTC / USD", symbol: "wBTC", dev: "0.12%", status: "Safe" },
+      { asset: "wETH / USD", symbol: "wETH", dev: "0.08%", status: "Safe" },
+      { asset: "ERGO / USD", symbol: "ERGO", dev: "0.22%", status: "Safe" }
+    ];
+    return defaultFeeds.map(f => {
+      const price = prices[f.symbol.toLowerCase()] || (f.symbol === "USDC" ? 1.0 : f.symbol === "XLM" ? 0.12 : f.symbol === "EURC" ? 1.08 : f.symbol === "wBTC" ? 64200.0 : f.symbol === "wETH" ? 3450.0 : 0.50);
+      return {
+        ...f,
+        price
+      };
+    });
+  }, [prices]);
+
   const handleVote = async (id: string, supports: boolean) => {
     const rawId = parseInt(id.replace("ERP-", ""));
     try {
@@ -687,8 +932,8 @@ export default function ErgoDashboard() {
               hasVoted: true,
             };
           }
-          return p;
         }));
+        addTransactionHistoryEntry("gov_vote", "ERGO", 2500, `vote-${id}`);
       } else {
         alert("Failed to submit vote.");
       }
@@ -767,6 +1012,7 @@ export default function ErgoDashboard() {
 
       alert("USDC deposited successfully into Backstop!");
       fetchBackstopData();
+      addTransactionHistoryEntry("backstop_deposit", "USDC", amount, sendRes.hash);
     } catch (err: any) {
       console.error(err);
       alert(`Backstop deposit failed: ${err.message || err}`);
@@ -820,6 +1066,7 @@ export default function ErgoDashboard() {
 
       alert("Withdrawal cooldown queue request submitted successfully!");
       fetchBackstopData();
+      addTransactionHistoryEntry("backstop_withdraw", "USDC", amount, sendRes.hash);
     } catch (err: any) {
       console.error(err);
       alert(`Withdrawal queue failed: ${err.message || err}`);
@@ -960,16 +1207,7 @@ export default function ErgoDashboard() {
       }
 
       // Add transaction history entry
-      const newTx = {
-        id: `tx-${Date.now()}`,
-        type: txType.toUpperCase(),
-        asset: activePool.symbol,
-        amount,
-        hash: sendRes.hash.slice(0, 6) + "..." + sendRes.hash.slice(-6),
-        date: new Date().toISOString().split("T")[0],
-        time: new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit" }),
-      };
-      setTransactions(prev => [newTx, ...prev]);
+      addTransactionHistoryEntry(txType, activePool.symbol, amount, sendRes.hash);
 
       // Add alert notification
       const notif = {
@@ -1360,10 +1598,16 @@ export default function ErgoDashboard() {
                         <button
                           onClick={() => {
                             if (!delegationAddress) return alert("Please specify a delegate address.");
-                            setActiveDelegations(prev => [
-                              ...prev,
-                              { address: delegationAddress, limit: Number(delegationLimit), status: "Active" }
-                            ]);
+                            setActiveDelegations(prev => {
+                              const next = [
+                                ...prev,
+                                { address: delegationAddress, limit: Number(delegationLimit), status: "Active" }
+                              ];
+                              if (walletAddress) {
+                                localStorage.setItem(`ergo_dels_${walletAddress}`, JSON.stringify(next));
+                              }
+                              return next;
+                            });
                             setDelegationAddress("");
                             alert("Credit delegated successfully!");
                           }}
@@ -1381,7 +1625,13 @@ export default function ErgoDashboard() {
                               <span className="text-white">${d.limit} USDC</span>
                               <button
                                 onClick={() => {
-                                  setActiveDelegations(prev => prev.filter((_, idx) => idx !== i));
+                                  setActiveDelegations(prev => {
+                                    const next = prev.filter((_, idx) => idx !== i);
+                                    if (walletAddress) {
+                                      localStorage.setItem(`ergo_dels_${walletAddress}`, JSON.stringify(next));
+                                    }
+                                    return next;
+                                  });
                                   alert("Credit delegation revoked successfully.");
                                 }}
                                 className="text-red-400 hover:text-red-300 font-bold px-1.5 py-0.5 rounded bg-red-500/10 transition-colors"
@@ -1905,8 +2155,8 @@ export default function ErgoDashboard() {
               {activeSection === "performance" && (
                 <div className="flex flex-col gap-6">
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                    <KpiCard label="Staking Balance" value="450" suffix=" ERGO" delay={0} icon={Award} />
-                    <KpiCard label="Accumulated Rewards" value="24.50" suffix=" ERGO" delay={0.06} icon={TrendingUp} />
+                    <KpiCard label="Staking Balance" value={userTotalStaked.toLocaleString()} suffix=" USDC" delay={0} icon={Award} />
+                    <KpiCard label="Accumulated Rewards" value={liveRewards.toFixed(6)} suffix=" ERGO" delay={0.06} icon={TrendingUp} />
                     <KpiCard label="Aggregated Yield Rate" value={avgApy.toString()} suffix="%" delay={0.12} icon={ArrowUpRight} />
                     <KpiCard label="Liquidity Contributed" value={totals.suppliedUSD.toString()} prefix="$" delay={0.18} icon={Wallet} />
                   </div>
@@ -1925,14 +2175,7 @@ export default function ErgoDashboard() {
 
                     <div className="h-72">
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={[
-                          { month: "Jan", earned: 120, paid: 25 },
-                          { month: "Feb", earned: 180, paid: 40 },
-                          { month: "Mar", earned: 210, paid: 35 },
-                          { month: "Apr", earned: 290, paid: 60 },
-                          { month: "May", earned: 310, paid: 75 },
-                          { month: "Jun", earned: 345, paid: 75 },
-                        ]}>
+                        <BarChart data={monthlyYieldData}>
                           <CartesianGrid strokeDasharray="3 3" stroke={C.grid} vertical={false} />
                           <XAxis dataKey="month" tick={{ fontSize: 10, fill: C.grey }} axisLine={false} tickLine={false} />
                           <YAxis tick={{ fontSize: 10, fill: C.grey }} axisLine={false} tickLine={false} />
@@ -2039,14 +2282,11 @@ export default function ErgoDashboard() {
 
                       <div className="h-px bg-white/5 w-full" />
                       <button
-                        onClick={() => {
-                          setSelectedAssetId("usdc");
-                          setTxType("supply");
-                          setIsTxModalOpen(true);
-                        }}
-                        className="w-full py-2.5 rounded-xl border border-white/10 text-xs font-bold text-white hover:bg-white/5 transition-all text-center"
+                        onClick={handleBackstopDeposit}
+                        disabled={isBackstopTxSubmitting}
+                        className="w-full py-2.5 rounded-xl border border-white/10 text-xs font-bold text-white hover:bg-white/5 disabled:opacity-50 transition-all text-center"
                       >
-                        Deposit Backstop Capital
+                        {isBackstopTxSubmitting ? "Depositing..." : "Deposit Backstop Capital"}
                       </button>
                     </div>
                   </div>
@@ -2108,23 +2348,29 @@ export default function ErgoDashboard() {
                       </div>
 
                       <div className="flex flex-col gap-3">
-                        {[
-                          { asset: "USDC / USD", reflector: "$1.000", twap: "$1.001", dev: "0.10%", status: "Safe" },
-                          { asset: "XLM / USD", reflector: "$0.112", twap: "$0.111", dev: "0.89%", status: "Safe" },
-                          { asset: "EURC / USD", reflector: "$1.080", twap: "$1.077", dev: "0.27%", status: "Safe" }
-                        ].map((o, idx) => (
-                          <div key={idx} className="flex flex-col gap-1.5 p-2.5 rounded-xl bg-white/5 border border-white/5">
-                            <div className="flex justify-between items-center text-xs">
-                              <span className="font-bold text-white">{o.asset}</span>
-                              <span className="text-[9px] bg-brandLime/15 text-brandLime px-1.5 py-0.5 rounded font-bold">{o.status}</span>
+                        {deviationFeeds.map((o, idx) => {
+                          const reflectorVal = o.price;
+                          const devPercent = parseFloat(o.dev) / 100;
+                          const twapVal = reflectorVal * (1 + devPercent);
+                          const formatter = (v: number) => {
+                            if (v >= 1000) return v.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
+                            if (v >= 1) return v.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 3 });
+                            return v.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 4 });
+                          };
+                          return (
+                            <div key={idx} className="flex flex-col gap-1.5 p-2.5 rounded-xl bg-white/5 border border-white/5">
+                              <div className="flex justify-between items-center text-xs">
+                                <span className="font-bold text-white">{o.asset}</span>
+                                <span className="text-[9px] bg-brandLime/15 text-brandLime px-1.5 py-0.5 rounded font-bold">{o.status}</span>
+                              </div>
+                              <div className="flex justify-between text-[10px] text-brandGray">
+                                <span>Reflector: <span className="font-mono text-white">{formatter(reflectorVal)}</span></span>
+                                <span>TWAP: <span className="font-mono text-white">{formatter(twapVal)}</span></span>
+                                <span>Var: <span className="font-mono text-brandLime">{o.dev}</span></span>
+                              </div>
                             </div>
-                            <div className="flex justify-between text-[10px] text-brandGray">
-                              <span>Reflector: <span className="font-mono text-white">{o.reflector}</span></span>
-                              <span>TWAP: <span className="font-mono text-white">{o.twap}</span></span>
-                              <span>Var: <span className="font-mono text-brandLime">{o.dev}</span></span>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
@@ -2185,159 +2431,516 @@ export default function ErgoDashboard() {
               )}
 
               {/* ────────────────────────────────────────────────────────
-                  6. GOVERNANCE proposals list
+                  6. GOVERNANCE Proposals Layout
                   ──────────────────────────────────────────────────────── */}
-              {activeSection === "governance" && (
-                <div className="flex flex-col gap-6">
-                  {/* KPI Bar */}
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                    <div className="p-5 rounded-2xl border border-white/5 bg-[#121316]/50 shadow-lg flex flex-col gap-1.5 relative overflow-hidden group">
-                      <span className="text-[10px] font-bold uppercase text-brandGray tracking-wider">My Voting Power</span>
-                      <p className="text-2xl font-bold font-mono text-white">2,500 ERGO</p>
-                      <span className="text-[10px] text-brandLime font-semibold flex items-center gap-1 mt-2">
-                        Staked in Governance
-                      </span>
-                    </div>
+              {activeSection === "governance" && (() => {
+                // If proposal details is selected
+                if (selectedProposalId !== null) {
+                  const selectedProposal = proposals.find(p => p.rawId === selectedProposalId || p.id === `ERP-${selectedProposalId}`);
+                  if (!selectedProposal) {
+                    return (
+                      <div className="p-6 rounded-2xl border border-white/5 bg-[#121316]/30 text-center">
+                        <p className="text-brandGray text-xs">Proposal not found.</p>
+                        <button onClick={() => setSelectedProposalId(null)} className="mt-4 px-4 py-2 bg-brandLime text-brandDark font-bold text-xs rounded-xl">Back to Governance</button>
+                      </div>
+                    );
+                  }
 
-                    <div className="p-5 rounded-2xl border border-white/5 bg-[#121316]/50 shadow-lg flex flex-col gap-1.5 relative overflow-hidden group">
-                      <span className="text-[10px] font-bold uppercase text-brandGray tracking-wider">Active proposals</span>
-                      <p className="text-2xl font-bold font-mono text-white">2 Proposals</p>
-                      <span className="text-[10px] text-brandGray mt-2">Active validation period</span>
-                    </div>
+                  let parsedDesc = { summary: selectedProposal.description, params: {} as Record<string, string> };
+                  try {
+                    if (selectedProposal.description && selectedProposal.description.startsWith("{")) {
+                      parsedDesc = JSON.parse(selectedProposal.description);
+                    }
+                  } catch (e) {}
 
-                    <div className="p-5 rounded-2xl border border-white/5 bg-[#121316]/50 shadow-lg flex flex-col gap-1.5 relative overflow-hidden group">
-                      <span className="text-[10px] font-bold uppercase text-brandGray tracking-wider">Proposals Executed</span>
-                      <p className="text-2xl font-bold font-mono text-white">10 ERPs</p>
-                      <span className="text-[10px] text-brandGray mt-2">Soroban contract updates</span>
-                    </div>
+                  const displayParams = {
+                    "Target Parameter": "Collateral Factor",
+                    "New Value": "85.00%",
+                    "Target Pool": "USDC Shared Core",
+                    ...parsedDesc.params
+                  };
 
-                    <div className="p-5 rounded-2xl border border-white/5 bg-[#121316]/50 shadow-lg flex flex-col gap-1.5 relative overflow-hidden group">
-                      <span className="text-[10px] font-bold uppercase text-brandGray tracking-wider">Staking rewards</span>
-                      <p className="text-2xl font-bold font-mono text-white">+8.45% APY</p>
-                      <span className="text-[10px] text-brandLime mt-2">Auto-compound yield</span>
-                    </div>
-                  </div>
+                  const aiCritic = {
+                    summary: selectedProposal.title.includes("USDC") 
+                      ? "This proposal requests to increase the USDC Shared Core Pool collateral factor limit from 80% to 85%. This allows borrowers to borrow more debt relative to their USDC deposits." 
+                      : selectedProposal.title.includes("EURC") 
+                      ? "This proposal aims to deploy a new isolated satellite pool mapping the Stellar EURC contract to support Euro-denominated collateralization." 
+                      : "This proposal implements a smart contract update modifying active parameters within the core pool.",
+                    pros: selectedProposal.title.includes("USDC") 
+                      ? ["Increases capital efficiency for institutional borrowers.", "Attracts higher volumes of short-term USDC leverage positions."] 
+                      : selectedProposal.title.includes("EURC") 
+                      ? ["Diversifies currency asset risks outside of USD stablecoins.", "Allows low-risk hedging options for European markets."] 
+                      : ["Aligns protocol operations with target performance limits.", "Passed security simulation checks."],
+                    cons: selectedProposal.title.includes("USDC") 
+                      ? ["Reduces the safety buffer between collateral value and liquidation threshold.", "Elevates systemic bad-debt risk in the event of rapid market drops."] 
+                      : selectedProposal.title.includes("EURC") 
+                      ? ["EURC has lower secondary market liquidity on Stellar DEX compared to USDC.", "Higher risk of price slippage during Dutch liquidation auctions."] 
+                      : ["Adds minor parameter divergence across pools.", "Requires active oracle deviation monitoring."],
+                    riskScore: selectedProposal.title.includes("USDC") ? "HIGH RISK (MEDIUM DEVIATION)" : selectedProposal.title.includes("EURC") ? "MEDIUM RISK" : "LOW RISK"
+                  };
 
-                  {/* Header and Create Button */}
-                  <div className="flex justify-between items-center bg-[#121316]/40 p-6 rounded-2xl border border-white/5">
-                    <div>
-                      <h3 className="text-base font-bold text-white">Stellar Governance Dashboard</h3>
-                      <p className="text-xs text-brandGray mt-1">Vote on risk parameters, Oracle feeds, and smart contract execution limits.</p>
-                    </div>
-                    <button
-                      onClick={() => setIsCreatePropModalOpen(true)}
-                      className="px-5 py-2.5 rounded-xl bg-brandLime text-brandDark font-bold text-xs tracking-wider shadow-[0_0_15px_rgba(212,255,63,0.15)] hover:scale-[1.02] transition-transform flex items-center gap-1.5"
-                    >
-                      <Plus className="size-4" /> Create Proposal
-                    </button>
-                  </div>
+                  return (
+                    <div className="flex flex-col gap-6">
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => setSelectedProposalId(null)}
+                          className="px-3.5 py-2 rounded-xl border border-white/5 text-xs text-brandGray hover:text-white hover:bg-white/5 transition-all"
+                        >
+                          ← Back to Proposals
+                        </button>
+                        <span className="text-[10px] font-bold font-mono bg-brandPurple/20 text-[#7c3aed] px-2.5 py-1 rounded">
+                          {selectedProposal.id}
+                        </span>
+                        <span className={`text-[10px] font-bold px-2.5 py-1 rounded ${
+                          selectedProposal.status === "Active" ? "bg-brandLime/10 text-brandLime" : "bg-white/5 text-brandGray"
+                        }`}>
+                          {selectedProposal.status}
+                        </span>
+                      </div>
 
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    {/* Active proposals list */}
-                    <div className="lg:col-span-2 flex flex-col gap-4">
-                      <h4 className="text-xs font-bold text-brandGray uppercase tracking-wider">Active Governance Proposals</h4>
-                      {proposals.map(prop => (
-                        <div key={prop.id} className="p-6 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col gap-4 hover:scale-[1.005] transition-transform duration-300">
-                          <div className="flex items-center justify-between border-b border-white/5 pb-3">
-                            <div className="flex items-center gap-3">
-                              <span className="text-[10px] font-bold font-mono bg-brandPurple/20 text-[#7c3aed] px-2 py-0.5 rounded">{prop.id}</span>
-                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${prop.status === "Active" ? "bg-brandLime/10 text-brandLime" : "bg-white/5 text-brandGray"}`}>{prop.status}</span>
+                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        {/* Main Details */}
+                        <div className="lg:col-span-2 flex flex-col gap-6">
+                          <div className="p-6 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col gap-4">
+                            <div>
+                              <h3 className="text-lg font-bold text-white leading-snug">{selectedProposal.title}</h3>
+                              <span className="text-[10px] text-brandGray/40 mt-1 block">Proposer: {selectedProposal.proposer}</span>
                             </div>
-                            <span className="text-[10px] font-mono text-brandGray/40">Ends in: {prop.endsIn}</span>
-                          </div>
 
-                          <div>
-                            <h4 className="text-sm font-bold text-white">{prop.title}</h4>
-                            <p className="text-xs text-[#9fadaa] mt-1.5 leading-relaxed">{prop.description}</p>
-                            <span className="text-[10px] text-brandGray/40 mt-2 block">Proposer: {prop.proposer}</span>
-                          </div>
-
-                          {/* Voting visual bar graphs */}
-                          <div className="flex flex-col gap-2 mt-2">
-                            <div className="flex justify-between text-[10px] font-mono font-bold">
-                              <span className="text-brandLime">For: {prop.votesFor.toLocaleString()} ERGO ({(prop.votesFor / (prop.votesFor + prop.votesAgainst) * 100).toFixed(0)}%)</span>
-                              <span className="text-red-400">Against: {prop.votesAgainst.toLocaleString()} ERGO ({(prop.votesAgainst / (prop.votesFor + prop.votesAgainst) * 100).toFixed(0)}%)</span>
-                            </div>
-                            <div className="h-2 w-full rounded-full bg-white/5 overflow-hidden flex">
-                              <div className="h-full bg-brandLime" style={{ width: `${(prop.votesFor / (prop.votesFor + prop.votesAgainst) * 100)}%` }} />
-                              <div className="h-full bg-red-500" style={{ width: `${(prop.votesAgainst / (prop.votesFor + prop.votesAgainst) * 100)}%` }} />
-                            </div>
-                          </div>
-
-                          {/* Action buttons */}
-                          {prop.status === "Active" && (
-                            <div className="flex gap-3 mt-2 justify-end">
-                              {prop.hasVoted ? (
-                                <span className="text-xs bg-white/5 text-brandGray/60 px-4 py-2 border border-white/5 rounded-xl font-bold flex items-center gap-1.5">
-                                  <Check className="size-3 text-brandLime" />
-                                  Voted Successfully
-                                </span>
-                              ) : (
-                                <>
-                                  <button
-                                    onClick={() => handleVote(prop.id, true)}
-                                    className="px-4 py-2 rounded-xl bg-brandLime/10 hover:bg-brandLime/15 text-brandLime border border-[#d4ff3f]/10 font-bold text-xs"
-                                  >
-                                    Vote For
-                                  </button>
-                                  <button
-                                    onClick={() => handleVote(prop.id, false)}
-                                    className="px-4 py-2 rounded-xl bg-red-500/10 hover:bg-red-500/15 text-red-400 border border-red-500/10 font-bold text-xs"
-                                  >
-                                    Vote Against
-                                  </button>
-                                </>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Timelock Queue Column */}
-                    <div className="flex flex-col gap-4">
-                      <h4 className="text-xs font-bold text-brandGray uppercase tracking-wider">Timelock Execution Queue</h4>
-                      <div className="flex flex-col gap-4">
-                        {timelockQueue.map((item, idx) => (
-                          <div key={idx} className="p-5 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col gap-3">
-                            <div className="flex justify-between items-center border-b border-white/5 pb-2">
-                              <span className="text-[10px] font-bold font-mono bg-brandPurple/20 text-[#7c3aed] px-2 py-0.5 rounded">{item.id}</span>
-                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                                item.status === "Queued" ? "bg-amber-500/10 text-amber-500 border border-amber-500/15" : "bg-brandLime/10 text-brandLime border border-brandLime/15"
-                              }`}>{item.status}</span>
-                            </div>
+                            <div className="h-px bg-white/5 w-full" />
 
                             <div>
-                              <h5 className="text-xs font-bold text-white">{item.title}</h5>
-                              <div className="flex flex-col gap-1 mt-2 text-[10px] font-mono text-brandGray">
-                                <span>Target: <span className="text-white">{item.targetContract}</span></span>
-                                <span>Action: <span className="text-brandLime">{item.actionName}</span></span>
-                                {item.status === "Queued" && (
-                                  <span className="flex items-center gap-1 text-amber-400 mt-1.5 font-sans">
-                                    <Clock className="size-3" /> Execution ETA: {item.eta}
-                                  </span>
-                                )}
+                              <h4 className="text-xs font-bold text-white uppercase tracking-wider mb-2">Proposal Overview</h4>
+                              <p className="text-xs text-brandGray leading-relaxed">{parsedDesc.summary}</p>
+                            </div>
+
+                            <div className="h-px bg-white/5 w-full" />
+
+                            <div>
+                              <h4 className="text-xs font-bold text-white uppercase tracking-wider mb-3">Structured Execution Parameters</h4>
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-xs text-left">
+                                  <thead>
+                                    <tr className="text-brandGray border-b border-white/5 pb-2">
+                                      <th className="pb-2 font-medium">Parameter Field</th>
+                                      <th className="pb-2 text-right font-medium">Configured Value</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {Object.entries(displayParams).map(([k, v]) => (
+                                      <tr key={k} className="border-b border-white/5 hover:bg-white/5">
+                                        <td className="py-2.5 font-medium text-brandGray">{k}</td>
+                                        <td className="py-2.5 text-right font-mono text-white truncate max-w-[200px]" title={v}>{v}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Voting Card */}
+                          <div className="p-6 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col gap-4">
+                            <h4 className="text-xs font-bold text-white uppercase tracking-wider">Vote Casting Panel</h4>
+                            
+                            <div className="flex flex-col gap-2">
+                              <div className="flex justify-between text-[10px] font-mono font-bold">
+                                <span className="text-brandLime">For: {selectedProposal.votesFor.toLocaleString()} ERGO</span>
+                                <span className="text-red-400">Against: {selectedProposal.votesAgainst.toLocaleString()} ERGO</span>
+                              </div>
+                              <div className="h-2 w-full rounded-full bg-white/5 overflow-hidden flex">
+                                <div className="h-full bg-brandLime" style={{ width: `${(selectedProposal.votesFor / (selectedProposal.votesFor + selectedProposal.votesAgainst || 1) * 100)}%` }} />
+                                <div className="h-full bg-red-500" style={{ width: `${(selectedProposal.votesAgainst / (selectedProposal.votesFor + selectedProposal.votesAgainst || 1) * 100)}%` }} />
                               </div>
                             </div>
 
-                            {item.status === "Queued" && (
-                              <button
-                                onClick={() => {
-                                  setTimelockQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: "Executed" } : q));
-                                  alert(`Successfully triggered Timelock execution for proposal ${item.id}! Smart contract parameters have been updated.`);
-                                }}
-                                className="w-full mt-2 py-2 rounded-xl bg-brandLime text-brandDark font-bold text-xs hover:bg-brandLime/90 transition-all text-center"
-                              >
-                                Execute Upgrade
-                              </button>
+                            {selectedProposal.status === "Active" && (
+                              <div className="flex gap-3 justify-end mt-2">
+                                {selectedProposal.hasVoted ? (
+                                  <span className="text-xs bg-white/5 text-brandGray/60 px-4 py-2 border border-white/5 rounded-xl font-bold flex items-center gap-1.5">
+                                    <Check className="size-3 text-brandLime" />
+                                    Vote Counted
+                                  </span>
+                                ) : (
+                                  <>
+                                    <button
+                                      onClick={() => handleVote(selectedProposal.id, true)}
+                                      className="px-4 py-2 rounded-xl bg-brandLime/10 hover:bg-brandLime/15 text-brandLime border border-[#d4ff3f]/10 font-bold text-xs"
+                                    >
+                                      Vote For
+                                    </button>
+                                    <button
+                                      onClick={() => handleVote(selectedProposal.id, false)}
+                                      className="px-4 py-2 rounded-xl bg-red-500/10 hover:bg-red-500/15 text-red-400 border border-red-500/10 font-bold text-xs"
+                                    >
+                                      Vote Against
+                                    </button>
+                                  </>
+                                )}
+                              </div>
                             )}
+                          </div>
+                        </div>
+
+                        {/* AI Critic Sidebar */}
+                        <div className="flex flex-col gap-6">
+                          <div className="p-6 rounded-2xl border border-brandPurple/20 bg-[#121316]/50 shadow-lg flex flex-col gap-4 relative overflow-hidden">
+                            <div className="absolute top-0 right-0 p-4 opacity-10">
+                              <Shield className="size-20 text-brandPurple" />
+                            </div>
+
+                            <div>
+                              <span className="text-[9px] font-bold uppercase tracking-widest text-[#7c3aed]">AI Guardian Monitor</span>
+                              <h4 className="text-sm font-bold text-white mt-1">Proposal Critic Analysis</h4>
+                            </div>
+
+                            <p className="text-xs text-brandGray leading-relaxed">{aiCritic.summary}</p>
+
+                            <div className="h-px bg-white/5 w-full" />
+
+                            <div className="flex flex-col gap-2">
+                              <span className="text-[10px] font-bold text-brandLime uppercase tracking-wider">Pros / Benefits</span>
+                              <ul className="list-disc pl-4 text-[11px] text-brandGray flex flex-col gap-1">
+                                {aiCritic.pros.map((p, i) => <li key={i}>{p}</li>)}
+                              </ul>
+                            </div>
+
+                            <div className="flex flex-col gap-2">
+                              <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider">Cons / Risks</span>
+                              <ul className="list-disc pl-4 text-[11px] text-brandGray flex flex-col gap-1">
+                                {aiCritic.cons.map((c, i) => <li key={i}>{c}</li>)}
+                              </ul>
+                            </div>
+
+                            <div className="h-px bg-white/5 w-full" />
+
+                            <div className="flex justify-between items-center text-xs">
+                              <span className="text-brandGray">Risk Assessment</span>
+                              <span className={`font-mono font-bold px-2 py-0.5 rounded text-[9px] ${
+                                aiCritic.riskScore.includes("HIGH") ? "bg-red-500/10 text-red-400 border border-red-500/15" : "bg-brandLime/10 text-brandLime border border-brandLime/15"
+                              }`}>{aiCritic.riskScore}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
+                // If proposal creation is open
+                if (isCreatePropOpen) {
+                  const loadExampleTemplate = (id: number) => {
+                    if (id === 1) {
+                      setNewPropTitle("ERP-11: Register EURC Satellite Pool & Risk Parameters");
+                      setNewPropTarget("CCSHAPUB4KRRDGA3PWUWO6WKULCLNXW7N5JYVFVVQWNSQUPR6E4PVLUW");
+                      setNewPropAction("create_market");
+                      const structuredDesc = {
+                        summary: "This proposal deploys a new isolated satellite pool for EURC, mapping the Stellar EURC contract to support Euro-denominated collateralization with a 75% loan-to-value cap.",
+                        params: {
+                          "Collateral Factor": "75%",
+                          "Liability Factor": "80%",
+                          "Asset Address": "CCSHAPUB4KRRDGA3PWUWO6WKULCLNXW7N5JYVFVVQWNSQUPR6E4PVLUW",
+                          "Pool Type": "Isolated Satellite"
+                        }
+                      };
+                      setNewPropDesc(JSON.stringify(structuredDesc, null, 2));
+                    } else {
+                      setNewPropTitle("ERP-12: Update USDC Shared Core Pool Collateral Factor to 85%");
+                      setNewPropTarget("CBHSXIJO7IDDO62NPJCJWS2NLAPUCNH7LBOUFFABR4MT47TNOXR4HO2J");
+                      setNewPropAction("update_market_params");
+                      const structuredDesc = {
+                        summary: "This proposal increases the USDC Shared Core Pool collateral factor to 85% to enhance liquidity utilization, supported by historical oracle stability.",
+                        params: {
+                          "New Collateral Factor": "85%",
+                          "New Liability Factor": "90%",
+                          "Target Asset": "USDC (Shared Core)"
+                        }
+                      };
+                      setNewPropDesc(JSON.stringify(structuredDesc, null, 2));
+                    }
+                  };
+
+                  return (
+                    <div className="flex flex-col gap-6">
+                      <div className="flex justify-between items-center bg-[#121316]/40 p-6 rounded-2xl border border-white/5">
+                        <div>
+                          <h3 className="text-base font-bold text-white">Create Governance Proposal</h3>
+                          <p className="text-xs text-brandGray mt-1">Configure target contract upgrade parameters and execute transaction signatures.</p>
+                        </div>
+                        <button
+                          onClick={() => setIsCreatePropOpen(false)}
+                          className="px-4 py-2 rounded-xl border border-white/5 text-xs text-brandGray hover:text-white hover:bg-white/5 transition-all"
+                        >
+                          ← Cancel
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        {/* Main Form */}
+                        <div className="lg:col-span-2 p-6 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col gap-4">
+                          <h4 className="text-xs font-bold text-white uppercase tracking-wider">Proposal Configurator</h4>
+
+                          <div className="flex flex-col gap-1.5">
+                            <label className="text-[10px] text-brandGray uppercase tracking-wider font-bold">Proposal Title</label>
+                            <input
+                              type="text"
+                              placeholder="e.g. ERP-11: Register EURC Satellite Pool & Risk Parameters"
+                              value={newPropTitle}
+                              onChange={(e) => setNewPropTitle(e.target.value)}
+                              className="w-full bg-[#121316] border border-white/5 focus:border-brandPurple/40 rounded-xl px-3 py-2.5 text-xs text-white outline-none"
+                            />
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="flex flex-col gap-1.5">
+                              <label className="text-[10px] text-brandGray uppercase tracking-wider font-bold">Target Contract Address</label>
+                              <input
+                                type="text"
+                                placeholder="Target contract public key G..."
+                                value={newPropTarget}
+                                onChange={(e) => setNewPropTarget(e.target.value)}
+                                className="w-full bg-[#121316] border border-white/5 focus:border-brandPurple/40 rounded-xl px-3 py-2.5 text-xs text-white outline-none font-mono"
+                              />
+                            </div>
+
+                            <div className="flex flex-col gap-1.5">
+                              <label className="text-[10px] text-brandGray uppercase tracking-wider font-bold">Action Method / Function</label>
+                              <input
+                                type="text"
+                                placeholder="e.g. create_market"
+                                value={newPropAction}
+                                onChange={(e) => setNewPropAction(e.target.value)}
+                                className="w-full bg-[#121316] border border-white/5 focus:border-brandPurple/40 rounded-xl px-3 py-2.5 text-xs text-white outline-none font-mono"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col gap-1.5">
+                            <label className="text-[10px] text-brandGray uppercase tracking-wider font-bold">Execution Payload Description (JSON/Structured)</label>
+                            <textarea
+                              placeholder="Describe the proposal or write JSON representation..."
+                              value={newPropDesc}
+                              onChange={(e) => setNewPropDesc(e.target.value)}
+                              rows={5}
+                              className="w-full bg-[#121316] border border-white/5 focus:border-brandPurple/40 rounded-xl px-3 py-2.5 text-xs text-white outline-none resize-none leading-relaxed font-mono"
+                            />
+                          </div>
+
+                          <div className="h-px bg-white/5 my-2 w-full" />
+
+                          {/* Payment & Publish Button */}
+                          <div className="flex flex-col gap-3">
+                            <button
+                              disabled={isPayingFee || !walletAddress || !newPropTitle || !newPropTarget || !newPropAction || !newPropDesc}
+                              onClick={payProposalFee}
+                              className="w-full py-3.5 rounded-xl bg-brandLime text-brandDark font-bold text-xs hover:bg-[#c3ec34] hover:scale-[1.01] active:scale-[0.99] disabled:opacity-30 disabled:hover:scale-100 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+                            >
+                              {isPayingFee ? (
+                                <>
+                                  <div className="size-3.5 rounded-full border border-brandDark border-t-transparent animate-spin" />
+                                  Processing Payment & Publishing...
+                                </>
+                              ) : (
+                                "Sign, Pay 50 ERGO & Publish Proposal"
+                              )}
+                            </button>
+                            <p className="text-[10px] text-brandGray leading-relaxed text-center">
+                              * Creating a proposal triggers an on-chain transfer of 50 ERGO as a publishing fee. Upon ledger confirmation, your proposal will automatically go live.
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Sidebar: Step guide & examples */}
+                        <div className="flex flex-col gap-6">
+                          {/* Guide */}
+                          <div className="p-6 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col gap-4">
+                            <span className="text-[9px] font-bold uppercase tracking-widest text-[#7c3aed]">Instruction Guide</span>
+                            <h4 className="text-sm font-bold text-white">How to Deploy a Proposal</h4>
+                            <div className="flex flex-col gap-3 text-xs leading-relaxed text-brandGray">
+                              <div>
+                                <span className="text-white font-semibold">1. Choose Target Contract</span>
+                                <p className="text-[10px] mt-0.5">Define which core contract parameters will be modified (e.g. Core Pool, compliance allowlists).</p>
+                              </div>
+                              <div>
+                                <span className="text-white font-semibold">2. Pay Creation Fee</span>
+                                <p className="text-[10px] mt-0.5">Creating a proposal requires an administrative payment of 50 ERGO to align governance incentives.</p>
+                              </div>
+                              <div>
+                                <span className="text-white font-semibold">3. Cast & Track Votes</span>
+                                <p className="text-[10px] mt-0.5">Once published, token holders cast votes. Passed proposals enter a 48h execution timelock queue.</p>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Templates */}
+                          <div className="p-6 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col gap-4">
+                            <h4 className="text-sm font-bold text-white">Example Templates</h4>
+                            <p className="text-[10px] text-brandGray">Click a template below to auto-populate the execution configuration.</p>
+                            <div className="flex flex-col gap-2 mt-1">
+                              <button
+                                onClick={() => loadExampleTemplate(1)}
+                                className="p-3 text-left rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 transition-all text-xs flex flex-col gap-0.5"
+                              >
+                                <span className="font-bold text-white">Example 1: Add EURC Satellite</span>
+                                <span className="text-[10px] text-brandGray">Register EURC asset, deploy isolated satellite market, set 75% LTV.</span>
+                              </button>
+
+                              <button
+                                onClick={() => loadExampleTemplate(2)}
+                                className="p-3 text-left rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 transition-all text-xs flex flex-col gap-0.5"
+                              >
+                                <span className="font-bold text-white">Example 2: Update USDC Risk</span>
+                                <span className="text-[10px] text-brandGray">Change USDC Core Pool Collateral factor to 85% via Governance action.</span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="flex flex-col gap-6">
+                    {/* KPI Bar */}
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                      <div className="p-5 rounded-2xl border border-white/5 bg-[#121316]/50 shadow-lg flex flex-col gap-1.5 relative overflow-hidden group">
+                        <span className="text-[10px] font-bold uppercase text-brandGray tracking-wider">My Voting Power</span>
+                        <p className="text-2xl font-bold font-mono text-white">2,500 ERGO</p>
+                        <span className="text-[10px] text-brandLime font-semibold flex items-center gap-1 mt-2">
+                          Staked in Governance
+                        </span>
+                      </div>
+
+                      <div className="p-5 rounded-2xl border border-white/5 bg-[#121316]/50 shadow-lg flex flex-col gap-1.5 relative overflow-hidden group">
+                        <span className="text-[10px] font-bold uppercase text-brandGray tracking-wider">Active proposals</span>
+                        <p className="text-2xl font-bold font-mono text-white">{proposals.filter(p => p.status === 'Active').length} Proposals</p>
+                        <span className="text-[10px] text-brandGray mt-2">Active validation period</span>
+                      </div>
+
+                      <div className="p-5 rounded-2xl border border-white/5 bg-[#121316]/50 shadow-lg flex flex-col gap-1.5 relative overflow-hidden group">
+                        <span className="text-[10px] font-bold uppercase text-brandGray tracking-wider">Proposals Executed</span>
+                        <p className="text-2xl font-bold font-mono text-white">10 ERPs</p>
+                        <span className="text-[10px] text-brandGray mt-2">Soroban contract updates</span>
+                      </div>
+
+                      <div className="p-5 rounded-2xl border border-white/5 bg-[#121316]/50 shadow-lg flex flex-col gap-1.5 relative overflow-hidden group">
+                        <span className="text-[10px] font-bold uppercase text-brandGray tracking-wider">Staking rewards</span>
+                        <p className="text-2xl font-bold font-mono text-white">+8.45% APY</p>
+                        <span className="text-[10px] text-brandLime mt-2">Auto-compound yield</span>
+                      </div>
+                    </div>
+
+                    {/* Header and Create Button */}
+                    <div className="flex justify-between items-center bg-[#121316]/40 p-6 rounded-2xl border border-white/5">
+                      <div>
+                        <h3 className="text-base font-bold text-white">Stellar Governance Dashboard</h3>
+                        <p className="text-xs text-brandGray mt-1">Vote on risk parameters, Oracle feeds, and smart contract execution limits.</p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setIsCreatePropOpen(true);
+                          setFeePaidTxHash("");
+                        }}
+                        className="px-5 py-2.5 rounded-xl bg-brandLime text-brandDark font-bold text-xs tracking-wider shadow-[0_0_15px_rgba(212,255,63,0.15)] hover:scale-[1.02] transition-transform flex items-center gap-1.5"
+                      >
+                        <Plus className="size-4" /> Create Proposal
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                      {/* Active proposals list */}
+                      <div className="lg:col-span-2 flex flex-col gap-4">
+                        <h4 className="text-xs font-bold text-brandGray uppercase tracking-wider">Active Governance Proposals</h4>
+                        {proposals.map(prop => (
+                          <div
+                            key={prop.id}
+                            onClick={() => setSelectedProposalId(prop.rawId || parseInt(prop.id.replace("ERP-", "")))}
+                            className="p-6 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col gap-4 hover:scale-[1.005] hover:border-brandPurple/20 cursor-pointer transition-all duration-300"
+                          >
+                            <div className="flex items-center justify-between border-b border-white/5 pb-3">
+                              <div className="flex items-center gap-3">
+                                <span className="text-[10px] font-bold font-mono bg-brandPurple/20 text-[#7c3aed] px-2 py-0.5 rounded">{prop.id}</span>
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${prop.status === "Active" ? "bg-brandLime/10 text-brandLime" : "bg-white/5 text-brandGray"}`}>{prop.status}</span>
+                              </div>
+                              <span className="text-[10px] font-mono text-brandGray/40">Ends in: {prop.endsIn || "5 days"}</span>
+                            </div>
+
+                            <div>
+                              <h4 className="text-sm font-bold text-white">{prop.title}</h4>
+                              <p className="text-xs text-[#9fadaa] mt-1.5 leading-relaxed line-clamp-2">
+                                {(() => {
+                                  try {
+                                    if (prop.description && prop.description.startsWith("{")) {
+                                      return JSON.parse(prop.description).summary;
+                                    }
+                                  } catch (e) {}
+                                  return prop.description;
+                                })()}
+                              </p>
+                              <span className="text-[10px] text-brandGray/40 mt-2 block">Proposer: {prop.proposer}</span>
+                            </div>
+
+                            {/* Voting visual bar graphs */}
+                            <div className="flex flex-col gap-2 mt-2">
+                              <div className="flex justify-between text-[10px] font-mono font-bold">
+                                <span className="text-brandLime">For: {prop.votesFor.toLocaleString()} ERGO ({(prop.votesFor / (prop.votesFor + prop.votesAgainst || 1) * 100).toFixed(0)}%)</span>
+                                <span className="text-red-400">Against: {prop.votesAgainst.toLocaleString()} ERGO ({(prop.votesAgainst / (prop.votesFor + prop.votesAgainst || 1) * 100).toFixed(0)}%)</span>
+                              </div>
+                              <div className="h-2 w-full rounded-full bg-white/5 overflow-hidden flex">
+                                <div className="h-full bg-brandLime" style={{ width: `${(prop.votesFor / (prop.votesFor + prop.votesAgainst || 1) * 100)}%` }} />
+                                <div className="h-full bg-red-500" style={{ width: `${(prop.votesAgainst / (prop.votesFor + prop.votesAgainst || 1) * 100)}%` }} />
+                              </div>
+                            </div>
                           </div>
                         ))}
                       </div>
+
+                      {/* Timelock Queue Column */}
+                      <div className="flex flex-col gap-4">
+                        <h4 className="text-xs font-bold text-brandGray uppercase tracking-wider">Timelock Execution Queue</h4>
+                        <div className="flex flex-col gap-4">
+                          {timelockQueue.map((item, idx) => (
+                            <div key={idx} className="p-5 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col gap-3">
+                              <div className="flex justify-between items-center border-b border-white/5 pb-2">
+                                <span className="text-[10px] font-bold font-mono bg-brandPurple/20 text-[#7c3aed] px-2 py-0.5 rounded">{item.id}</span>
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                                  item.status === "Queued" ? "bg-amber-500/10 text-amber-500 border border-amber-500/15" : "bg-brandLime/10 text-brandLime border border-brandLime/15"
+                                }`}>{item.status}</span>
+                              </div>
+
+                              <div>
+                                <h5 className="text-xs font-bold text-white">{item.title}</h5>
+                                <div className="flex flex-col gap-1 mt-2 text-[10px] font-mono text-brandGray">
+                                  <span>Target: <span className="text-white">{item.targetContract}</span></span>
+                                  <span>Action: <span className="text-brandLime">{item.actionName}</span></span>
+                                  {item.status === "Queued" && (
+                                    <span className="flex items-center gap-1 text-amber-400 mt-1.5 font-sans">
+                                      <Clock className="size-3" /> Execution ETA: {item.eta}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              {item.status === "Queued" && (
+                                <button
+                                  onClick={() => {
+                                    setTimelockQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: "Executed" } : q));
+                                    alert(`Successfully triggered Timelock execution for proposal ${item.id}! Smart contract parameters have been updated.`);
+                                  }}
+                                  className="w-full mt-2 py-2 rounded-xl bg-brandLime text-brandDark font-bold text-xs hover:bg-brandLime/90 transition-all text-center"
+                                >
+                                  Execute Upgrade
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {/* ────────────────────────────────────────────────────────
                   7. SETTINGS PANEL VIEW
@@ -2576,11 +3179,16 @@ export default function ErgoDashboard() {
 
                             <button
                               onClick={() => {
+                                 if (!walletAddress) {
+                                  alert("Please connect wallet first");
+                                  return;
+                                }
                                 if (!allowlistUser) {
                                   alert("Please enter target user address");
                                   return;
                                 }
                                 handleComplianceTx("add_to_allowlist", [
+                                  Address.fromString(walletAddress!).toScVal(),
                                   xdr.ScVal.scvSymbol(allowlistMarket),
                                   Address.fromString(allowlistUser).toScVal(),
                                   nativeToScVal(allowlistAllowed)
@@ -2636,8 +3244,12 @@ export default function ErgoDashboard() {
 
                                     <button
                                       onClick={() => {
+                                        if (!walletAddress) {
+                                          alert("Please connect wallet first");
+                                          return;
+                                        }
                                         handleComplianceTx("flag_market_permissioned", [
-                                          Address.fromString(walletAddress).toScVal(),
+                                          Address.fromString(walletAddress!).toScVal(),
                                           xdr.ScVal.scvSymbol(flagMarket),
                                           nativeToScVal(flagPermissioned)
                                         ]);
@@ -2681,12 +3293,16 @@ export default function ErgoDashboard() {
 
                                   <button
                                     onClick={() => {
+                                      if (!walletAddress) {
+                                        alert("Please connect wallet first");
+                                        return;
+                                      }
                                       if (!issuerAddress) {
                                         alert("Please enter issuer address");
                                         return;
                                       }
                                       handleComplianceTx("set_issuer", [
-                                        Address.fromString(walletAddress).toScVal(),
+                                        Address.fromString(walletAddress!).toScVal(),
                                         xdr.ScVal.scvSymbol(issuerMarket),
                                         Address.fromString(issuerAddress).toScVal()
                                       ]);
@@ -2753,16 +3369,20 @@ export default function ErgoDashboard() {
                             <div className="flex justify-end mt-2">
                               <button
                                 onClick={() => {
+                                  if (!walletAddress) {
+                                    alert("Please connect wallet first");
+                                    return;
+                                  }
                                   if (!clawbackUser || !clawbackAmount) {
                                     alert("Please enter target address and amount");
                                     return;
                                   }
                                   const rawAmt = BigInt(Math.floor(parseFloat(clawbackAmount) * 10000000));
                                   handleComplianceTx("clawback_position", [
-                                    Address.fromString(walletAddress).toScVal(),
+                                    Address.fromString(walletAddress!).toScVal(),
                                     xdr.ScVal.scvSymbol(clawbackMarket),
                                     Address.fromString(clawbackUser).toScVal(),
-                                    nativeToScVal(rawAmt)
+                                    nativeToScVal(rawAmt, { type: 'i128' })
                                   ]);
                                 }}
                                 disabled={complianceSubmitting}

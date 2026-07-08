@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Instrument_Sans, Instrument_Serif, Outfit } from "next/font/google";
+import { Instrument_Sans, Instrument_Serif } from "next/font/google";
 import { StellarWalletProvider } from "../lib/stellar-wallet";
 import "./globals.css";
 
@@ -15,14 +15,13 @@ const instrumentSerif = Instrument_Serif({
   variable: "--font-instrument-serif",
 });
 
-const outfit = Outfit({
-  subsets: ["latin"],
-  variable: "--font-outfit",
-});
-
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className={`${instrumentSans.variable} ${instrumentSerif.variable} ${outfit.variable}`}>
+    <html lang="en" className={`${instrumentSans.variable} ${instrumentSerif.variable}`}>
+      <head>
+        <link rel="icon" href="/logo.png" />
+        <title>Ergo Protocol — Shared Liquidity Lending on Stellar</title>
+      </head>
       <body>
         <StellarWalletProvider>
           {children}

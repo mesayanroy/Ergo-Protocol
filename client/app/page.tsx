@@ -236,15 +236,10 @@ export default function HomePage() {
         {/* Content (Soothing Bottom-Left-aligned Structure) */}
         <div className="max-w-7xl mx-auto px-6 relative z-10 w-full">
           <div className="max-w-2xl">
-            {/* Badge */}
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-brandPurple/20 bg-brandPurpleDark/40 text-xs font-semibold uppercase tracking-wider text-brandPurple shadow-sm glow-purple mb-6 drop-shadow-[0_2px_8px_rgba(0,0,0,0.95)]">
-              <span className="w-1.5 h-1.5 rounded-full bg-brandLime animate-pulse" />
-               Live V-1
-            </div>
-
             {/* Title - Mix of Instrument Sans-Serif and Calligraphy Italics */}
             <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl tracking-tight leading-tight mb-5 drop-shadow-[0_4px_20px_rgba(0,0,0,0.98)]">
-              <span className="font-sans font-bold text-white">Shared Liquidity.</span> <br />
+              <span className="bg-[#d4ff3f] text-black px-2.5 py-0.5 rounded mr-1.5 font-sans font-bold">Shared</span>
+              <span className="font-sans font-bold text-white">Liquidity.</span> <br />
               <span className="font-serif italic font-normal text-transparent bg-clip-text bg-gradient-to-r from-white via-brandLime to-brandLime/90 tracking-wide">Lending Protocol on Stellar.</span>
             </h1>
 
@@ -270,18 +265,18 @@ export default function HomePage() {
             </div>
 
             {/* Core Stats */}
-            <div className="flex gap-8 border-t border-white/10 pt-6 w-full max-w-lg drop-shadow-[0_4px_12px_rgba(0,0,0,0.9)]">
+            <div className="flex gap-10 border-t border-white/10 pt-6 w-full max-w-lg drop-shadow-[0_4px_12px_rgba(0,0,0,0.9)]">
               <div>
                 <p className="text-xs text-white/80 uppercase tracking-widest font-semibold">Protocol TVL</p>
                 <p className="text-xl font-bold text-white mt-1">$48.6M+</p>
               </div>
               <div>
-                <p className="text-xs text-white/80 uppercase tracking-widest font-semibold">Oracle Security</p>
-                <p className="text-xl font-bold text-white mt-1">Multi-Feed</p>
+                <p className="text-xs text-white/80 uppercase tracking-widest font-semibold">Protocol LT</p>
+                <p className="text-xl font-bold text-white mt-1">85.0% LTV</p>
               </div>
               <div>
-                <p className="text-xs text-white/80 uppercase tracking-widest font-semibold">Liquidity Architecture</p>
-                <p className="text-xl font-bold text-brandLime mt-1">Shared Core</p>
+                <p className="text-xs text-white/80 uppercase tracking-widest font-semibold">Protocol avg APY</p>
+                <p className="text-xl font-bold text-brandLime mt-1">14.85% APY</p>
               </div>
             </div>
           </div>

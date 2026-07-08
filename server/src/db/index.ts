@@ -99,6 +99,8 @@ memoryStore.proposals.set(3, {
 });
 
 let pool: any = null;
+let useDb = false;
+
 try {
   const pgModule = await import("pg");
   if (process.env.DATABASE_URL) {
@@ -106,40 +108,58 @@ try {
       connectionString: process.env.DATABASE_URL,
       ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : undefined,
     });
+    // Verify database connectivity
+    await pool.query("SELECT 1");
+    useDb = true;
+    console.log("✓ PostgreSQL Database connected and verified successfully.");
   }
-} catch (e) {
-  // pg module not loaded, fallback to memoryStore
+} catch (e: any) {
+  console.warn("⚠️ Database connection failed, falling back to memory store:", e.message || e);
+  pool = null;
+  useDb = false;
 }
 
 export const db = {
   async query(text: string, params?: any[]) {
-    if (pool) {
-      return pool.query(text, params);
+    if (useDb && pool) {
+      try {
+        return await pool.query(text, params);
+      } catch (err: any) {
+        console.error("Database query failed:", err.message || err);
+      }
     }
     return { rows: [] };
   },
 
   async upsertPrice(symbol: string, price: number) {
     memoryStore.prices.set(symbol, { asset_symbol: symbol, price, updated_at: new Date() });
-    if (pool) {
-      await pool.query(
-        `INSERT INTO prices (asset_symbol, price, updated_at) 
-         VALUES ($1, $2, NOW()) 
-         ON CONFLICT (asset_symbol) DO UPDATE SET price = EXCLUDED.price, updated_at = NOW()`,
-        [symbol, price]
-      );
+    if (useDb && pool) {
+      try {
+        await pool.query(
+          `INSERT INTO prices (asset_symbol, price, updated_at) 
+           VALUES ($1, $2, NOW()) 
+           ON CONFLICT (asset_symbol) DO UPDATE SET price = EXCLUDED.price, updated_at = NOW()`,
+          [symbol, price]
+        );
+      } catch (err: any) {
+        console.error("Failed to upsert price in database:", err.message || err);
+      }
     }
   },
 
   async getPrice(symbol: string): Promise<number> {
     const mem = memoryStore.prices.get(symbol);
     if (mem) return mem.price;
-    if (pool) {
-      const res = await pool.query("SELECT price FROM prices WHERE asset_symbol = $1", [symbol]);
-      if (res.rows.length > 0) {
-        const p = Number(res.rows[0].price);
-        memoryStore.prices.set(symbol, { asset_symbol: symbol, price: p });
-        return p;
+    if (useDb && pool) {
+      try {
+        const res = await pool.query("SELECT price FROM prices WHERE asset_symbol = $1", [symbol]);
+        if (res.rows.length > 0) {
+          const p = Number(res.rows[0].price);
+          memoryStore.prices.set(symbol, { asset_symbol: symbol, price: p });
+          return p;
+        }
+      } catch (err: any) {
+        console.error("Failed to fetch price from database:", err.message || err);
       }
     }
     return 0;
@@ -148,18 +168,22 @@ export const db = {
   async upsertPosition(pos: PositionRecord) {
     const key = `${pos.user_address}:${pos.market_symbol}`;
     memoryStore.positions.set(key, { ...pos, updated_at: new Date() });
-    if (pool) {
-      await pool.query(
-        `INSERT INTO positions (user_address, market_symbol, supplied, borrowed, delegated, health_factor, updated_at) 
-         VALUES ($1, $2, $3, $4, $5, $6, NOW()) 
-         ON CONFLICT (user_address, market_symbol) DO UPDATE SET 
-            supplied = EXCLUDED.supplied, 
-            borrowed = EXCLUDED.borrowed, 
-            delegated = EXCLUDED.delegated, 
-            health_factor = EXCLUDED.health_factor, 
-            updated_at = NOW()`,
-        [pos.user_address, pos.market_symbol, pos.supplied, pos.borrowed, pos.delegated, pos.health_factor]
-      );
+    if (useDb && pool) {
+      try {
+        await pool.query(
+          `INSERT INTO positions (user_address, market_symbol, supplied, borrowed, delegated, health_factor, updated_at) 
+           VALUES ($1, $2, $3, $4, $5, $6, NOW()) 
+           ON CONFLICT (user_address, market_symbol) DO UPDATE SET 
+              supplied = EXCLUDED.supplied, 
+              borrowed = EXCLUDED.borrowed, 
+              delegated = EXCLUDED.delegated, 
+              health_factor = EXCLUDED.health_factor, 
+              updated_at = NOW()`,
+          [pos.user_address, pos.market_symbol, pos.supplied, pos.borrowed, pos.delegated, pos.health_factor]
+        );
+      } catch (err: any) {
+        console.error("Failed to upsert position in database:", err.message || err);
+      }
     }
   },
 
@@ -172,59 +196,95 @@ export const db = {
     }
     if (res.length > 0) return res;
 
-    if (pool) {
-      const dbRes = await pool.query("SELECT * FROM positions WHERE user_address = $1", [user]);
-      dbRes.rows.forEach((row: any) => {
-        const record: PositionRecord = {
-          user_address: row.user_address,
-          market_symbol: row.market_symbol,
-          supplied: Number(row.supplied),
-          borrowed: Number(row.borrowed),
-          delegated: Number(row.delegated),
-          health_factor: Number(row.health_factor),
-        };
-        memoryStore.positions.set(`${row.user_address}:${row.market_symbol}`, record);
-        res.push(record);
-      });
+    if (useDb && pool) {
+      try {
+        const dbRes = await pool.query("SELECT * FROM positions WHERE user_address = $1", [user]);
+        dbRes.rows.forEach((row: any) => {
+          const record: PositionRecord = {
+            user_address: row.user_address,
+            market_symbol: row.market_symbol,
+            supplied: Number(row.supplied),
+            borrowed: Number(row.borrowed),
+            delegated: Number(row.delegated),
+            health_factor: Number(row.health_factor),
+          };
+          memoryStore.positions.set(`${row.user_address}:${row.market_symbol}`, record);
+          res.push(record);
+        });
+      } catch (err: any) {
+        console.error("Failed to get positions from database:", err.message || err);
+      }
     }
     return res;
   },
 
   async upsertProposal(prop: ProposalRecord) {
     memoryStore.proposals.set(prop.id, { ...prop, updated_at: new Date() });
-    if (pool) {
-      await pool.query(
-        `INSERT INTO proposals (proposal_id, proposal_type, title, description, proposer, status, votes_for, votes_against, voting_ends_at, executed_at) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TO_TIMESTAMP($9), $10) 
-         ON CONFLICT (proposal_id) DO UPDATE SET 
-            votes_for = EXCLUDED.votes_for, 
-            votes_against = EXCLUDED.votes_against, 
-            status = EXCLUDED.status,
-            executed_at = EXCLUDED.executed_at`,
-        [
-          prop.id, 
-          prop.action_name, 
-          prop.title, 
-          prop.description, 
-          prop.proposer, 
-          prop.status, 
-          prop.votes_for, 
-          prop.votes_against, 
-          prop.end_time, 
-          prop.executed ? new Date() : null
-        ]
-      );
+    if (useDb && pool) {
+      try {
+        await pool.query(
+          `INSERT INTO proposals (proposal_id, proposal_type, title, description, proposer, status, votes_for, votes_against, voting_ends_at, executed_at) 
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TO_TIMESTAMP($9), $10) 
+           ON CONFLICT (proposal_id) DO UPDATE SET 
+              votes_for = EXCLUDED.votes_for, 
+              votes_against = EXCLUDED.votes_against, 
+              status = EXCLUDED.status,
+              executed_at = EXCLUDED.executed_at`,
+          [
+            prop.id, 
+            prop.action_name, 
+            prop.title, 
+            prop.description, 
+            prop.proposer, 
+            prop.status, 
+            prop.votes_for, 
+            prop.votes_against, 
+            prop.end_time, 
+            prop.executed ? new Date() : null
+          ]
+        );
+      } catch (err: any) {
+        console.error("Failed to upsert proposal in database:", err.message || err);
+      }
     }
   },
 
   async getProposal(id: number): Promise<ProposalRecord | null> {
     const mem = memoryStore.proposals.get(id);
     if (mem) return mem;
-    if (pool) {
-      const res = await pool.query("SELECT * FROM proposals WHERE proposal_id = $1", [id]);
-      if (res.rows.length > 0) {
-        const row = res.rows[0];
-        const record: ProposalRecord = {
+    if (useDb && pool) {
+      try {
+        const res = await pool.query("SELECT * FROM proposals WHERE proposal_id = $1", [id]);
+        if (res.rows.length > 0) {
+          const row = res.rows[0];
+          const record: ProposalRecord = {
+            id: Number(row.proposal_id),
+            proposer: row.proposer,
+            target_contract: "",
+            action_name: row.proposal_type || "",
+            title: row.title || "",
+            description: row.description || "",
+            status: row.status || "Active",
+            votes_for: Number(row.votes_for || 0),
+            votes_against: Number(row.votes_against || 0),
+            end_time: Math.floor(new Date(row.voting_ends_at || Date.now()).getTime() / 1000),
+            executed: row.status === 'executed',
+          };
+          memoryStore.proposals.set(id, record);
+          return record;
+        }
+      } catch (err: any) {
+        console.error("Failed to get proposal from database:", err.message || err);
+      }
+    }
+    return null;
+  },
+
+  async getAllProposals(): Promise<ProposalRecord[]> {
+    if (useDb && pool) {
+      try {
+        const res = await pool.query("SELECT * FROM proposals ORDER BY proposal_id DESC");
+        return res.rows.map((row: any) => ({
           id: Number(row.proposal_id),
           proposer: row.proposer,
           target_contract: "",
@@ -236,64 +296,52 @@ export const db = {
           votes_against: Number(row.votes_against || 0),
           end_time: Math.floor(new Date(row.voting_ends_at || Date.now()).getTime() / 1000),
           executed: row.status === 'executed',
-        };
-        memoryStore.proposals.set(id, record);
-        return record;
+        }));
+      } catch (err: any) {
+        console.error("Failed to get all proposals from database:", err.message || err);
       }
-    }
-    return null;
-  },
-
-  async getAllProposals(): Promise<ProposalRecord[]> {
-    if (pool) {
-      const res = await pool.query("SELECT * FROM proposals ORDER BY proposal_id DESC");
-      return res.rows.map((row: any) => ({
-        id: Number(row.proposal_id),
-        proposer: row.proposer,
-        target_contract: "",
-        action_name: row.proposal_type || "",
-        title: row.title || "",
-        description: row.description || "",
-        status: row.status || "Active",
-        votes_for: Number(row.votes_for || 0),
-        votes_against: Number(row.votes_against || 0),
-        end_time: Math.floor(new Date(row.voting_ends_at || Date.now()).getTime() / 1000),
-        executed: row.status === 'executed',
-      }));
     }
     return Array.from(memoryStore.proposals.values());
   },
 
   async upsertAuction(auc: AuctionRecord) {
     memoryStore.auctions.set(auc.id, { ...auc, updated_at: new Date() });
-    if (pool) {
-      await pool.query(
-        `INSERT INTO auctions (id, user_address, pool_id, collateral_asset, collateral_amount, debt_asset, debt_amount, start_ledger, active, updated_at) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW()) 
-         ON CONFLICT (id) DO UPDATE SET 
-            collateral_amount = EXCLUDED.collateral_amount, 
-            debt_amount = EXCLUDED.debt_amount, 
-            active = EXCLUDED.active, 
-            updated_at = NOW()`,
-        [auc.id, auc.user_address, auc.pool_id, auc.collateral_asset, auc.collateral_amount, auc.debt_asset, auc.debt_amount, auc.start_ledger, auc.active]
-      );
+    if (useDb && pool) {
+      try {
+        await pool.query(
+          `INSERT INTO auctions (id, user_address, pool_id, collateral_asset, collateral_amount, debt_asset, debt_amount, start_ledger, active, updated_at) 
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW()) 
+           ON CONFLICT (id) DO UPDATE SET 
+              collateral_amount = EXCLUDED.collateral_amount, 
+              debt_amount = EXCLUDED.debt_amount, 
+              active = EXCLUDED.active, 
+              updated_at = NOW()`,
+          [auc.id, auc.user_address, auc.pool_id, auc.collateral_asset, auc.collateral_amount, auc.debt_asset, auc.debt_amount, auc.start_ledger, auc.active]
+        );
+      } catch (err: any) {
+        console.error("Failed to upsert auction in database:", err.message || err);
+      }
     }
   },
 
   async getAllAuctions(): Promise<AuctionRecord[]> {
-    if (pool) {
-      const res = await pool.query("SELECT * FROM auctions ORDER BY id DESC");
-      return res.rows.map((row: any) => ({
-        id: Number(row.id),
-        user_address: row.user_address,
-        pool_id: Number(row.pool_id),
-        collateral_asset: row.collateral_asset,
-        collateral_amount: Number(row.collateral_amount),
-        debt_asset: row.debt_asset,
-        debt_amount: Number(row.debt_amount),
-        start_ledger: Number(row.start_ledger),
-        active: row.active,
-      }));
+    if (useDb && pool) {
+      try {
+        const res = await pool.query("SELECT * FROM auctions ORDER BY id DESC");
+        return res.rows.map((row: any) => ({
+          id: Number(row.id),
+          user_address: row.user_address,
+          pool_id: Number(row.pool_id),
+          collateral_asset: row.collateral_asset,
+          collateral_amount: Number(row.collateral_amount),
+          debt_asset: row.debt_asset,
+          debt_amount: Number(row.debt_amount),
+          start_ledger: Number(row.start_ledger),
+          active: row.active,
+        }));
+      } catch (err: any) {
+        console.error("Failed to get all auctions from database:", err.message || err);
+      }
     }
     return Array.from(memoryStore.auctions.values());
   },

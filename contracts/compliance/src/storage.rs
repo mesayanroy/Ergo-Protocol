@@ -7,6 +7,7 @@ pub enum DataKey {
     Permissioned(Symbol),
     Allowlist(Symbol, Address),
     Issuer(Symbol),
+    CorePool,
 }
 
 pub fn get_admin(env: &Env) -> Option<Address> {
@@ -49,4 +50,12 @@ pub fn get_issuer(env: &Env, market_id: Symbol) -> Option<Address> {
 
 pub fn set_issuer(env: &Env, market_id: Symbol, issuer: &Address) {
     env.storage().persistent().set(&DataKey::Issuer(market_id), issuer);
+}
+
+pub fn get_core_pool(env: &Env) -> Option<Address> {
+    env.storage().persistent().get(&DataKey::CorePool)
+}
+
+pub fn set_core_pool(env: &Env, core_pool: &Address) {
+    env.storage().persistent().set(&DataKey::CorePool, core_pool);
 }

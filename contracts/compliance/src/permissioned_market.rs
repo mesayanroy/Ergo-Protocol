@@ -19,15 +19,25 @@ pub fn flag_market_permissioned(
     Ok(())
 }
 
-/// Adds/removes a user to/from the allowlist under issuer control.
+/// Adds/removes a user to/from the allowlist under issuer or admin control.
 pub fn add_to_allowlist(
     env: &Env,
+    caller: Address,
     market_id: Symbol,
     user: Address,
     allowed: bool,
 ) -> Result<(), Error> {
-    let issuer = storage::get_issuer(env, market_id.clone()).ok_or(Error::Unauthorized)?;
-    issuer.require_auth();
+    caller.require_auth();
+    let admin = storage::get_admin(env).ok_or(Error::Unauthorized)?;
+    let issuer = storage::get_issuer(env, market_id.clone());
+
+    let is_admin = caller == admin;
+    let is_issuer = Some(caller) == issuer;
+
+    if !is_admin && !is_issuer {
+        return Err(Error::Unauthorized);
+    }
+
     storage::set_allowed(env, market_id, user, allowed);
     Ok(())
 }

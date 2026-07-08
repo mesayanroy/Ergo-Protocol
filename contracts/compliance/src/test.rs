@@ -44,7 +44,7 @@ fn test_permissioned_market_allows_allowlisted() {
     storage::set_issuer(&env, market.clone(), &issuer);
 
     // Add user to allowlist under issuer authorization
-    permissioned_market::add_to_allowlist(&env, market.clone(), user.clone(), true).expect("should succeed");
+    permissioned_market::add_to_allowlist(&env, issuer.clone(), market.clone(), user.clone(), true).expect("should succeed");
 
     // Check authorization: should now succeed
     assert!(authorization::check_authorized(&env, market, user).is_ok());

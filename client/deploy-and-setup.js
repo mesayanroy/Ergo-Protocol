@@ -507,6 +507,24 @@ async function main() {
   await createPoolMarket('weth_satellite', weth, 7500, 8000, 1, 2, 3_000_000_0000000n);
   await createPoolMarket('ergo_satellite', ergo, 6500, 7000, 1, 0, 1_000_000_0000000n);
 
+  console.log('\n--- SETTING DEFAULT COMPLIANCE ISSUERS ---');
+  const testUserAddress = 'GARN7A6OJKPR3HAPVIKM6GRUD7KMEHYQ76VJJCO4AAKQ6ETEKFQPQ24T';
+  const registerIssuer = async (marketId) => {
+    console.log(`Setting issuer for ${marketId} to ${testUserAddress}...`);
+    await callContract(compliance, 'set_issuer', [
+      Address.fromString(adminAddress).toScVal(),
+      nativeToScVal(marketId, { type: 'symbol' }),
+      Address.fromString(testUserAddress).toScVal()
+    ]);
+  };
+
+  await registerIssuer('xlm_shared');
+  await registerIssuer('usdc_shared');
+  await registerIssuer('eurc_shared');
+  await registerIssuer('wbtc_satellite');
+  await registerIssuer('weth_satellite');
+  await registerIssuer('ergo_satellite');
+
   console.log('\n--- SEEDING INITIAL POOL LIQUIDITY ---');
 
   const seedLiquidity = async (marketId, assetAddress, amount) => {

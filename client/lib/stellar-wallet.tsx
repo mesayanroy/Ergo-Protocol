@@ -195,28 +195,48 @@ export const StellarWalletProvider = ({ children }: { children: ReactNode }) => 
     if (!walletProvider) throw new Error("Wallet not connected");
     const providerId = walletProvider.toLowerCase();
     
+    let signedXdr: any;
     if (providerId === "freighter") {
       const freighter = await import("@stellar/freighter-api");
       const res = await freighter.signTransaction(xdr, { networkPassphrase: 'Test SDF Network ; September 2015' } as any) as any;
-      return res.signedTxXdr || res;
-    }
-    
-    if (providerId === "albedo") {
+      signedXdr = res;
+    } else if (providerId === "albedo") {
       const albedo = (await import("@albedo-link/intent")).default;
       const res = await albedo.tx({ xdr });
-      return res.signed_envelope_xdr;
+      signedXdr = res;
+    } else if (providerId === "xbull") {
+      const xbull = (window as any).xBullSDK;
+      signedXdr = await xbull.signTransaction(xdr);
+    } else if (providerId === "hana") {
+      const hana = (window as any).hanaWallet;
+      if (!hana) throw new Error("Hana Wallet extension not detected.");
+      signedXdr = await hana.stellar.signTransaction(xdr);
+    } else if (providerId === "demo wallet") {
+      signedXdr = xdr;
+    } else {
+      throw new Error(`Transaction signing not supported for provider: ${walletProvider}`);
     }
 
-    if (providerId === "xbull") {
-      const xbull = (window as any).xBullSDK;
-      return await xbull.signTransaction(xdr);
+    if (!signedXdr) {
+      throw new Error("Wallet signing returned empty response");
+    }
+
+    // Extract the raw Base64 XDR string from any possible object structure
+    if (typeof signedXdr === "string") {
+      return signedXdr;
     }
     
-    if (providerId === "demo wallet") {
-      return xdr;
+    const extracted = signedXdr.signedTxXdr 
+      || signedXdr.signed_envelope_xdr 
+      || signedXdr.signedTx 
+      || signedXdr.signedXdr 
+      || signedXdr.signed_xdr;
+
+    if (typeof extracted === "string") {
+      return extracted;
     }
 
-    throw new Error(`Transaction signing not supported for provider: ${walletProvider}`);
+    throw new Error(`Could not extract signed XDR string from wallet response: ${JSON.stringify(signedXdr)}`);
   };
 
   // Add trustline for contract‑based assets

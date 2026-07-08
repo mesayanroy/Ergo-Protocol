@@ -39,14 +39,15 @@ impl ComplianceContract {
         permissioned_market::flag_market_permissioned(&env, governance, market_id, permissioned)
     }
 
-    /// Configures allowance status for a user under issuer authorization.
+    /// Configures allowance status for a user under issuer or admin authorization.
     pub fn add_to_allowlist(
         env: Env,
+        caller: Address,
         market_id: Symbol,
         user: Address,
         allowed: bool,
     ) -> Result<(), Error> {
-        permissioned_market::add_to_allowlist(&env, market_id, user, allowed)
+        permissioned_market::add_to_allowlist(&env, caller, market_id, user, allowed)
     }
 
     /// Configures issuer address for a market.
@@ -88,5 +89,20 @@ impl ComplianceContract {
     /// Gets the compliance admin address.
     pub fn get_admin(env: Env) -> Option<Address> {
         storage::get_admin(&env)
+    }
+
+    /// Configures the core pool contract dependency.
+    pub fn set_core_pool(
+        env: Env,
+        admin: Address,
+        core_pool: Address,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+        let stored_admin = storage::get_admin(&env).ok_or(Error::Unauthorized)?;
+        if admin != stored_admin {
+            return Err(Error::Unauthorized);
+        }
+        storage::set_core_pool(&env, &core_pool);
+        Ok(())
     }
 }
