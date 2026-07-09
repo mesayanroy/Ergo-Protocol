@@ -16,6 +16,9 @@ const MARKET_METADATA: Record<string, { symbol: string }> = {
   wbtc_satellite: { symbol: 'wBTC' },
   weth_satellite: { symbol: 'wETH' },
   ergo_satellite: { symbol: 'ERGO' },
+  xlm_satellite: { symbol: 'XLM' },
+  usdc_satellite: { symbol: 'USDC' },
+  eurc_satellite: { symbol: 'EURC' },
 };
 
 export async function getUserPositions(userAddress: string): Promise<UserPosition[]> {

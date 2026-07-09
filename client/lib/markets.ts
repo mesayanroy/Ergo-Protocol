@@ -44,6 +44,9 @@ const MARKET_METADATA: Record<string, { symbol: string; name: string; logo: stri
   wbtc_satellite: { symbol: 'wBTC', name: 'Wrapped Bitcoin', logo: '/logo_wbtc.png', priceFallback: 64200.0 },
   weth_satellite: { symbol: 'wETH', name: 'Wrapped Ether', logo: '/logo_weth.png', priceFallback: 3450.0 },
   ergo_satellite: { symbol: 'ERGO', name: 'Ergo Protocol Token', logo: '/logo_ergo.png', priceFallback: 0.50 },
+  xlm_satellite: { symbol: 'XLM', name: 'Stellar Lumens (Satellite)', logo: '/logo_xlm.png', priceFallback: 0.12 },
+  usdc_satellite: { symbol: 'USDC', name: 'USD Coin (Satellite)', logo: '/logo_usdc.png', priceFallback: 1.0 },
+  eurc_satellite: { symbol: 'EURC', name: 'Euro Coin (Satellite)', logo: '/logo_eurc.png', priceFallback: 1.08 },
 };
 
 export async function getAllMarkets(): Promise<Market[]> {

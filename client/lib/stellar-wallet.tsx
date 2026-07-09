@@ -21,6 +21,8 @@ interface StellarWalletContextType {
   isWalletInstalled: (id: string) => boolean;
   signTransaction: (xdr: string) => Promise<string>;
   addTrustline: (assetCode: string, contractId: string) => Promise<string>;
+  network: "testnet" | "mainnet";
+  setNetwork: (network: "testnet" | "mainnet") => void;
 }
 
 const StellarWalletContext = createContext<StellarWalletContextType | undefined>(undefined);
@@ -30,6 +32,7 @@ export const StellarWalletProvider = ({ children }: { children: ReactNode }) => 
   const [walletProvider, setWalletProvider] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState<boolean>(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [network, setNetwork] = useState<"testnet" | "mainnet">("testnet");
 
   // Auto reconnect on page refresh
   useEffect(() => {
@@ -195,10 +198,14 @@ export const StellarWalletProvider = ({ children }: { children: ReactNode }) => 
     if (!walletProvider) throw new Error("Wallet not connected");
     const providerId = walletProvider.toLowerCase();
     
+    const passphrase = network === "mainnet" 
+      ? 'Public Global Stellar Network ; October 2015' 
+      : 'Test SDF Network ; September 2015';
+    
     let signedXdr: any;
     if (providerId === "freighter") {
       const freighter = await import("@stellar/freighter-api");
-      const res = await freighter.signTransaction(xdr, { networkPassphrase: 'Test SDF Network ; September 2015' } as any) as any;
+      const res = await freighter.signTransaction(xdr, { networkPassphrase: passphrase } as any) as any;
       signedXdr = res;
     } else if (providerId === "albedo") {
       const albedo = (await import("@albedo-link/intent")).default;
@@ -242,12 +249,16 @@ export const StellarWalletProvider = ({ children }: { children: ReactNode }) => 
   // Add trustline for contract‑based assets
   const addTrustline = async (assetCode: string, contractId: string): Promise<string> => {
     if (!walletAddress) throw new Error('Wallet not connected');
-    const horizon = new Horizon.Server('https://horizon-testnet.stellar.org');
+    const isMain = network === "mainnet";
+    const horizonUrl = isMain ? 'https://horizon.stellar.org' : 'https://horizon-testnet.stellar.org';
+    const passphrase = isMain ? Networks.PUBLIC : Networks.TESTNET;
+
+    const horizon = new Horizon.Server(horizonUrl);
     const account = await horizon.loadAccount(walletAddress);
     const asset = new Asset(assetCode, contractId);
     const tx = new TransactionBuilder(account, {
       fee: '100',
-      networkPassphrase: Networks.TESTNET,
+      networkPassphrase: passphrase,
     })
       .addOperation(Operation.changeTrust({ asset }))
       .setTimeout(30)
@@ -255,7 +266,7 @@ export const StellarWalletProvider = ({ children }: { children: ReactNode }) => 
     // Sign using existing provider method
     const xdr = tx.toXDR();
     const signedXdr = await signTransaction(xdr);
-    const result = await horizon.submitTransaction(TransactionBuilder.fromXDR(signedXdr, Networks.TESTNET));
+    const result = await horizon.submitTransaction(TransactionBuilder.fromXDR(signedXdr, passphrase));
     return result.hash;
   };
 
@@ -271,6 +282,8 @@ export const StellarWalletProvider = ({ children }: { children: ReactNode }) => 
         isWalletInstalled,
         signTransaction,
         addTrustline,
+        network,
+        setNetwork,
       }}
     >
       {children}

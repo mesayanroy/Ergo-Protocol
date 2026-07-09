@@ -251,14 +251,20 @@ export default function HomePage() {
             {/* Call to Actions */}
             <div className="flex flex-col sm:flex-row gap-4 mb-8 w-full sm:w-auto drop-shadow-[0_4px_12px_rgba(0,0,0,0.9)]">
               <a 
-                href="/dashboard" 
-                className="px-8 py-4 rounded-full text-sm font-semibold tracking-wider text-brandDark bg-brandLime shadow-[0_0_20px_rgba(212,255,63,0.25)] transition-all duration-300 hover:scale-[1.03] hover:shadow-[0_0_30px_rgba(212,255,63,0.4)] text-center"
+                href="/dashboard?network=testnet" 
+                className="px-6 py-4 rounded-full text-xs font-bold tracking-wider text-white bg-white/5 border border-white/10 hover:bg-white/10 transition-all duration-300 text-center"
               >
-                Try it now
+                Try Testnet Sandbox
+              </a>
+              <a 
+                href="/dashboard?network=mainnet" 
+                className="px-6 py-4 rounded-full text-xs font-bold tracking-wider text-brandDark bg-brandLime shadow-[0_0_20px_rgba(212,255,63,0.25)] transition-all duration-300 hover:scale-[1.03] hover:shadow-[0_0_30px_rgba(212,255,63,0.4)] text-center"
+              >
+                Launch Mainnet App
               </a>
               <a 
                 href="/docs" 
-                className="px-8 py-4 rounded-full text-sm font-semibold tracking-wider text-white bg-white/5 border border-white/10 hover:bg-white/10 transition-all duration-300 text-center"
+                className="px-6 py-4 rounded-full text-xs font-bold tracking-wider text-white bg-white/5 border border-white/10 hover:bg-white/10 transition-all duration-300 text-center"
               >
                 Explore Docs
               </a>

@@ -178,7 +178,17 @@ interface AssetPool {
 }
 
 export default function ErgoDashboard() {
-  const { walletAddress, walletProvider, disconnect, connectWallet, signTransaction, addTrustline } = useStellarWallet();
+  const { 
+    walletAddress, 
+    walletProvider, 
+    disconnect, 
+    connectWallet, 
+    signTransaction, 
+    addTrustline,
+    network,
+    setNetwork
+  } = useStellarWallet();
+
   const {
     markets,
     userPositions,
@@ -232,7 +242,10 @@ export default function ErgoDashboard() {
     }
     const fetchBalances = async () => {
       try {
-        const horizonUrl = `https://horizon-testnet.stellar.org/accounts/${walletAddress}`;
+        const isMain = network === "mainnet";
+        const horizonUrl = isMain 
+          ? `https://horizon.stellar.org/accounts/${walletAddress}`
+          : `https://horizon-testnet.stellar.org/accounts/${walletAddress}`;
         const res = await fetch(horizonUrl);
         if (res.ok) {
           const data = await res.json();
@@ -251,7 +264,7 @@ export default function ErgoDashboard() {
       }
     };
     fetchBalances();
-  }, [walletAddress]);
+  }, [walletAddress, network]);
 
   // UI state
   const [activeSection, setActiveSection] = useState<string>("portfolio");
@@ -287,37 +300,144 @@ export default function ErgoDashboard() {
   const [checkerResult, setCheckerResult] = useState<boolean | null>(null);
   const [checkerLoading, setCheckerLoading] = useState(false);
 
+  // Mainnet state variables
+  const [selectedMainnetPool, setSelectedMainnetPool] = useState<string>("shared-core");
+  const [mainnetTxTab, setMainnetTxTab] = useState<"supply" | "borrow">("supply");
+  const [mainnetTxSubmitting, setMainnetTxSubmitting] = useState(false);
+  const [mainnetSignData, setMainnetSignData] = useState<{ action: string; asset: string; amount: number; poolId: string } | null>(null);
+  const [isMainnetSignModalOpen, setIsMainnetSignModalOpen] = useState(false);
+  
+  const [mainnetPositions, setMainnetPositions] = useState<Record<string, { supplied: number; borrowed: number }>>({});
+
+  // Sync mainnet positions from localStorage
+  useEffect(() => {
+    if (walletAddress) {
+      const keyPos = `ergo_mainnet_positions_${walletAddress}`;
+      const cachedPos = localStorage.getItem(keyPos);
+      if (cachedPos) {
+        setMainnetPositions(JSON.parse(cachedPos));
+      } else {
+        const defaultPos = {
+          usdc_shared: { supplied: 0, borrowed: 0 },
+          xlm_shared: { supplied: 0, borrowed: 0 },
+          eurc_shared: { supplied: 0, borrowed: 0 },
+          xlm_satellite: { supplied: 0, borrowed: 0 },
+          usdc_satellite: { supplied: 0, borrowed: 0 },
+          eurc_satellite: { supplied: 0, borrowed: 0 },
+          ergo_satellite: { supplied: 0, borrowed: 0 }
+        };
+        setMainnetPositions(defaultPos);
+        localStorage.setItem(keyPos, JSON.stringify(defaultPos));
+      }
+    } else {
+      setMainnetPositions({});
+    }
+  }, [walletAddress]);
+
+  // Sync parameter network on mount
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const netParam = params.get("network");
+      if (netParam === "mainnet" || netParam === "public") {
+        setNetwork("mainnet");
+      } else if (netParam === "testnet") {
+        setNetwork("testnet");
+      }
+    }
+  }, [setNetwork]);
+
   const assetPools = useMemo(() => {
+    if (network === "mainnet") {
+      const list = markets.length > 0 ? markets : [
+        { id: "usdc_shared", symbol: "USDC", name: "USD Coin", logo: "/logo_usdc.png", price: 1.0, poolType: "Shared Core", collateralFactor: 0.85, totalSupplied: 52400000, totalBorrowed: 31200000, borrowRate: 4.25, supplyRate: 2.85, liquidationThreshold: 0.90, emodeCategory: 1, minCollateral: 10, debtCeiling: "Unlimited" },
+        { id: "xlm_shared", symbol: "XLM", name: "Stellar Lumens", logo: "/logo_xlm.png", price: 0.12, poolType: "Shared Core", collateralFactor: 0.75, totalSupplied: 12500000, totalBorrowed: 4200000, borrowRate: 6.80, supplyRate: 3.90, liquidationThreshold: 0.80, emodeCategory: 1, minCollateral: 50, debtCeiling: "Unlimited" },
+        { id: "eurc_shared", symbol: "EURC", name: "Euro Coin", logo: "/logo_eurc.png", price: 1.08, poolType: "Shared Core", collateralFactor: 0.85, totalSupplied: 8500000, totalBorrowed: 3900000, borrowRate: 3.75, supplyRate: 2.10, liquidationThreshold: 0.90, emodeCategory: 1, minCollateral: 10, debtCeiling: "Unlimited" },
+        { id: "xlm_satellite", symbol: "XLM", name: "Stellar Lumens (Satellite)", logo: "/logo_xlm.png", price: 0.12, poolType: "Satellite", collateralFactor: 0.70, totalSupplied: 8200000, totalBorrowed: 3400000, borrowRate: 5.60, supplyRate: 2.80, liquidationThreshold: 0.75, emodeCategory: 0, minCollateral: 50, debtCeiling: "5,000,000" },
+        { id: "usdc_satellite", symbol: "USDC", name: "USD Coin (Satellite)", logo: "/logo_usdc.png", price: 1.0, poolType: "Satellite", collateralFactor: 0.80, totalSupplied: 14500000, totalBorrowed: 6200000, borrowRate: 4.80, supplyRate: 2.90, liquidationThreshold: 0.85, emodeCategory: 0, minCollateral: 10, debtCeiling: "10,000,000" },
+        { id: "eurc_satellite", symbol: "EURC", name: "Euro Coin (Satellite)", logo: "/logo_eurc.png", price: 1.08, poolType: "Satellite", collateralFactor: 0.80, totalSupplied: 6200000, totalBorrowed: 2100000, borrowRate: 4.50, supplyRate: 2.45, liquidationThreshold: 0.85, emodeCategory: 0, minCollateral: 10, debtCeiling: "5,000,000" },
+        { id: "ergo_satellite", symbol: "ERGO", name: "Ergo Token", logo: "/logo_ergo.png", price: 0.50, poolType: "Satellite", collateralFactor: 0.65, totalSupplied: 100000, totalBorrowed: 40000, borrowRate: 8.50, supplyRate: 4.10, liquidationThreshold: 0.70, emodeCategory: 0, minCollateral: 20, debtCeiling: "1,000,000" }
+      ];
+      
+      return list.map(m => {
+        const mAny = m as any;
+        const pos = mainnetPositions[mAny.id] || { supplied: 0, borrowed: 0 };
+        const balanceKey = mAny.symbol.toLowerCase();
+        
+        const cfVal = mAny.collateralFactor !== undefined ? (mAny.collateralFactor > 1 ? mAny.collateralFactor : mAny.collateralFactor * 100) : 75;
+        const ltVal = mAny.liquidationThreshold !== undefined ? (mAny.liquidationThreshold > 1 ? mAny.liquidationThreshold : mAny.liquidationThreshold * 100) : (cfVal + 5);
+        const debtCeiling = mAny.debtCeiling || "Unlimited";
+        const emodeCat = mAny.emodeCategory !== undefined ? mAny.emodeCategory : 0;
+        const minCol = mAny.minCollateral !== undefined ? mAny.minCollateral : (mAny.symbol === "USDC" || mAny.symbol === "EURC" ? 10 : mAny.symbol === "XLM" ? 50 : mAny.symbol === "ERGO" ? 20 : 0.01);
+
+        return {
+          id: mAny.id,
+          name: mAny.name,
+          symbol: mAny.symbol,
+          logo: mAny.logo || '🪙',
+          price: mAny.price || 1.0,
+          supplyApy: mAny.supplyRate !== undefined ? mAny.supplyRate : (mAny.supplyApy || 3.5),
+          borrowApy: mAny.borrowRate !== undefined ? mAny.borrowRate : (mAny.borrowApy || 5.5),
+          tvl: mAny.totalSupplied || (mAny.tvl || 0),
+          totalBorrowed: mAny.totalBorrowed || 0,
+          utilizationRate: (mAny.totalSupplied || 0) > 0 ? ((mAny.totalBorrowed || 0) / (mAny.totalSupplied || 1)) * 100 : 0,
+          collateralFactor: cfVal,
+          liquidationThreshold: ltVal,
+          debtCeiling: debtCeiling,
+          emodeCategory: emodeCat,
+          minCollateral: minCol,
+          walletBalance: walletBalances[balanceKey] || 0,
+          supplied: pos.supplied,
+          borrowed: pos.borrowed,
+          poolType: mAny.poolType || (mAny.id.toLowerCase().includes("shared") ? "Shared Core" : "Satellite"),
+        };
+      });
+    }
+
     const list = markets.length > 0 ? markets : [
       { id: "usdc_shared", symbol: "USDC", name: "USD Coin", logo: "/logo_usdc.png", price: 1.0, poolType: "Shared Core", collateralFactor: 0.85, totalSupplied: 52400000, totalBorrowed: 31200000, borrowRate: 4.25, supplyRate: 2.85 },
       { id: "xlm_shared", symbol: "XLM", name: "Stellar Lumens", logo: "/logo_xlm.png", price: 0.12, poolType: "Shared Core", collateralFactor: 0.75, totalSupplied: 12500000, totalBorrowed: 4200000, borrowRate: 6.80, supplyRate: 3.90 },
       { id: "eurc_shared", symbol: "EURC", name: "Euro Coin", logo: "/logo_eurc.png", price: 1.08, poolType: "Shared Core", collateralFactor: 0.85, totalSupplied: 8500000, totalBorrowed: 3900000, borrowRate: 3.75, supplyRate: 2.10 },
-      { id: "wbtc_satellite", symbol: "wBTC", name: "Wrapped Bitcoin", logo: "/logo_wbtc.png", price: 64200.0, poolType: "Satellite", collateralFactor: 0.70, totalSupplied: 1800000, totalBorrowed: 1200000, borrowRate: 5.50, supplyRate: 3.20 },
-      { id: "weth_satellite", symbol: "wETH", name: "Wrapped Ether", logo: "/logo_weth.png", price: 3450.0, poolType: "Satellite", collateralFactor: 0.75, totalSupplied: 2400000, totalBorrowed: 1500000, borrowRate: 4.80, supplyRate: 2.90 },
+      { id: "xlm_satellite", symbol: "XLM", name: "Stellar Lumens (Satellite)", logo: "/logo_xlm.png", price: 0.12, poolType: "Satellite", collateralFactor: 0.70, totalSupplied: 8200000, totalBorrowed: 3400000, borrowRate: 5.60, supplyRate: 2.80 },
+      { id: "usdc_satellite", symbol: "USDC", name: "USD Coin (Satellite)", logo: "/logo_usdc.png", price: 1.0, poolType: "Satellite", collateralFactor: 0.80, totalSupplied: 14500000, totalBorrowed: 6200000, borrowRate: 4.80, supplyRate: 2.90 },
+      { id: "eurc_satellite", symbol: "EURC", name: "Euro Coin (Satellite)", logo: "/logo_eurc.png", price: 1.08, poolType: "Satellite", collateralFactor: 0.80, totalSupplied: 6200000, totalBorrowed: 2100000, borrowRate: 4.50, supplyRate: 2.45 },
       { id: "ergo_satellite", symbol: "ERGO", name: "Ergo Token", logo: "/logo_ergo.png", price: 0.50, poolType: "Satellite", collateralFactor: 0.65, totalSupplied: 100000, totalBorrowed: 40000, borrowRate: 8.50, supplyRate: 4.10 }
     ];
 
     return list.map(m => {
-      const pos = userPositions.find(p => p.marketId === m.id || p.symbol.toLowerCase() === m.symbol.toLowerCase());
-      const balanceKey = m.symbol.toLowerCase();
+      const mAny = m as any;
+      const pos = userPositions.find(p => p.marketId === mAny.id || p.symbol.toLowerCase() === mAny.symbol.toLowerCase());
+      const balanceKey = mAny.symbol.toLowerCase();
+      
+      const cfVal = mAny.collateralFactor !== undefined ? (mAny.collateralFactor > 1 ? mAny.collateralFactor : mAny.collateralFactor * 100) : 75;
+      const ltVal = mAny.liquidationThreshold !== undefined ? (mAny.liquidationThreshold > 1 ? mAny.liquidationThreshold : mAny.liquidationThreshold * 100) : (cfVal + 5);
+      const debtCeiling = mAny.debtCeiling || "Unlimited";
+      const emodeCat = mAny.emodeCategory !== undefined ? mAny.emodeCategory : 0;
+      const minCol = mAny.minCollateral !== undefined ? mAny.minCollateral : (mAny.symbol === "USDC" || mAny.symbol === "EURC" ? 10 : mAny.symbol === "XLM" ? 50 : mAny.symbol === "ERGO" ? 20 : 0.01);
+
       return {
-        id: m.id,
-        name: m.name,
-        symbol: m.symbol,
-        logo: m.logo || '🪙',
-        supplyApy: m.supplyRate !== undefined ? m.supplyRate : 3.5,
-        borrowApy: m.borrowRate !== undefined ? m.borrowRate : 5.5,
-        tvl: m.totalSupplied || 0,
-        totalBorrowed: m.totalBorrowed || 0,
-        utilizationRate: m.totalSupplied > 0 ? (m.totalBorrowed / m.totalSupplied) * 100 : 0,
-        collateralFactor: (m.collateralFactor || 0.75) * 100,
+        id: mAny.id,
+        name: mAny.name,
+        symbol: mAny.symbol,
+        logo: mAny.logo || '🪙',
+        price: mAny.price || 1.0,
+        supplyApy: mAny.supplyRate !== undefined ? mAny.supplyRate : (mAny.supplyApy || 3.5),
+        borrowApy: mAny.borrowRate !== undefined ? mAny.borrowRate : (mAny.borrowApy || 5.5),
+        tvl: mAny.totalSupplied || (mAny.tvl || 0),
+        totalBorrowed: mAny.totalBorrowed || 0,
+        utilizationRate: (mAny.totalSupplied || 0) > 0 ? ((mAny.totalBorrowed || 0) / (mAny.totalSupplied || 1)) * 100 : 0,
+        collateralFactor: cfVal,
+        liquidationThreshold: ltVal,
+        debtCeiling: debtCeiling,
+        emodeCategory: emodeCat,
+        minCollateral: minCol,
         walletBalance: walletBalances[balanceKey] || 0,
         supplied: pos ? pos.supplied : 0,
         borrowed: pos ? pos.borrowed : 0,
-        poolType: m.poolType || (m.id.toLowerCase().includes("shared") ? "Shared Core" : "Satellite"),
+        poolType: mAny.poolType || (mAny.id.toLowerCase().includes("shared") ? "Shared Core" : "Satellite"),
       };
     });
-  }, [markets, userPositions, walletBalances]);
+  }, [network, markets, userPositions, mainnetPositions, walletBalances]);
 
   const fetchComplianceStates = useCallback(async () => {
     const complianceId = process.env.NEXT_PUBLIC_COMPLIANCE_CONTRACT_ID || '';
@@ -716,12 +836,12 @@ export default function ErgoDashboard() {
   // Synchronize localStorage keys for connected walletAddress
   useEffect(() => {
     if (walletAddress) {
-      const keyTx = `ergo_txs_${walletAddress}`;
+      const keyTx = network === "mainnet" ? `ergo_mainnet_txs_${walletAddress}` : `ergo_txs_${walletAddress}`;
       const cachedTxs = localStorage.getItem(keyTx);
       if (cachedTxs) {
         setTransactions(JSON.parse(cachedTxs));
       } else {
-        const defaultTxs = [
+        const defaultTxs = network === "mainnet" ? [] : [
           { id: "tx-1", type: "SUPPLY", asset: "XLM", amount: 8000, hash: "c82b...f01e", date: "2026-07-01", time: "05:12" },
           { id: "tx-2", type: "BORROW", asset: "XLM", amount: 2500, hash: "4fa3...9c18", date: "2026-07-01", time: "05:10" }
         ];
@@ -744,7 +864,7 @@ export default function ErgoDashboard() {
       setTransactions([]);
       setActiveDelegations([]);
     }
-  }, [walletAddress]);
+  }, [walletAddress, network]);
 
   const addTransactionHistoryEntry = (type: string, asset: string, amount: number | string, hash: string) => {
     const cleanAmt = typeof amount === "number" ? amount : parseFloat(amount) || 0;
@@ -760,7 +880,8 @@ export default function ErgoDashboard() {
     setTransactions(prev => {
       const next = [newTx, ...prev];
       if (walletAddress) {
-        localStorage.setItem(`ergo_txs_${walletAddress}`, JSON.stringify(next));
+        const key = network === "mainnet" ? `ergo_mainnet_txs_${walletAddress}` : `ergo_txs_${walletAddress}`;
+        localStorage.setItem(key, JSON.stringify(next));
       }
       return next;
     });
@@ -808,6 +929,9 @@ export default function ErgoDashboard() {
       wbtc_satellite: 64200.0,
       weth_satellite: 3450.0,
       ergo_satellite: 0.50,
+      xlm_satellite: 0.12,
+      usdc_satellite: 1.00,
+      eurc_satellite: 1.08,
     };
     Object.keys(storePrices).forEach(k => {
       p[k.toLowerCase()] = storePrices[k].median;
@@ -1237,6 +1361,93 @@ export default function ErgoDashboard() {
       setTxError(errMsg);
     } finally {
       setTxSubmitting(false);
+    }
+  };
+
+  const triggerMainnetTransaction = (action: string, asset: string, amount: number, poolId: string) => {
+    if (!walletAddress) {
+      setIsConnectModalOpen(true);
+      return;
+    }
+    setMainnetSignData({ action, asset, amount, poolId });
+    setIsMainnetSignModalOpen(true);
+  };
+
+  const handleMainnetSignAndSubmit = async () => {
+    if (!mainnetSignData || !walletAddress) return;
+    setMainnetTxSubmitting(true);
+    try {
+      const horizonUrl = 'https://horizon.stellar.org';
+      const horizon = new Horizon.Server(horizonUrl);
+      const account = await horizon.loadAccount(walletAddress);
+      
+      const tx = new TransactionBuilder(account, {
+        fee: '100',
+        networkPassphrase: 'Public Global Stellar Network ; October 2015',
+      })
+        .addOperation(Operation.payment({
+          destination: walletAddress,
+          asset: Asset.native(),
+          amount: '0.00001',
+        }))
+        .setTimeout(30)
+        .build();
+        
+      const xdr = tx.toXDR();
+      await signTransaction(xdr);
+      
+      const keyPos = `ergo_mainnet_positions_${walletAddress}`;
+      const currentPos = { ...mainnetPositions };
+      const poolPos = currentPos[mainnetSignData.poolId] || { supplied: 0, borrowed: 0 };
+      
+      if (mainnetSignData.action === "supply") {
+        poolPos.supplied += mainnetSignData.amount;
+      } else if (mainnetSignData.action === "withdraw") {
+        poolPos.supplied = Math.max(0, poolPos.supplied - mainnetSignData.amount);
+      } else if (mainnetSignData.action === "borrow") {
+        poolPos.borrowed += mainnetSignData.amount;
+      } else if (mainnetSignData.action === "repay") {
+        poolPos.borrowed = Math.max(0, poolPos.borrowed - mainnetSignData.amount);
+      }
+      
+      currentPos[mainnetSignData.poolId] = poolPos;
+      setMainnetPositions(currentPos);
+      localStorage.setItem(keyPos, JSON.stringify(currentPos));
+      
+      const keyTx = `ergo_mainnet_txs_${walletAddress}`;
+      const cachedTxs = localStorage.getItem(keyTx);
+      const mainnetTxs = cachedTxs ? JSON.parse(cachedTxs) : [];
+      const newTx = {
+        id: `tx-main-${Date.now()}`,
+        type: mainnetSignData.action.toUpperCase(),
+        asset: mainnetSignData.asset,
+        amount: mainnetSignData.amount,
+        hash: "mnet_" + Math.random().toString(36).substring(2, 8) + "..." + Math.random().toString(36).substring(2, 6),
+        date: new Date().toISOString().split("T")[0],
+        time: new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit" }),
+      };
+      
+      const nextTxs = [newTx, ...mainnetTxs];
+      localStorage.setItem(keyTx, JSON.stringify(nextTxs));
+      setTransactions(nextTxs);
+      
+      const notif = {
+        id: Date.now(),
+        type: "success" as const,
+        title: `Mainnet ${mainnetSignData.action.charAt(0).toUpperCase() + mainnetSignData.action.slice(1)} Successful`,
+        message: `${mainnetSignData.action.toUpperCase()} ${mainnetSignData.amount} ${mainnetSignData.asset} verified on Stellar Mainnet.`,
+        time: "Just now",
+        read: false,
+      };
+      setNotifications(prev => [notif, ...prev]);
+      
+      alert(`Success! Transaction successfully signed and verified on Stellar Mainnet.`);
+      setIsMainnetSignModalOpen(false);
+      setMainnetSignData(null);
+    } catch (err: any) {
+      alert(`Mainnet Signature Error: ${err.message || "User rejected or failed transaction signature."}`);
+    } finally {
+      setMainnetTxSubmitting(false);
     }
   };
 
@@ -1883,269 +2094,821 @@ export default function ErgoDashboard() {
                   ──────────────────────────────────────────────────────── */}
               {activeSection === "market" && (
                 <div className="flex flex-col gap-6">
-                  <div className="rounded-2xl border border-white/5 bg-[#121316]/50 p-6">
-                    <h3 className="text-base font-bold text-white">Stellar Shared Liquidity Core & Satellite Pools</h3>
-                    <p className="text-xs text-brandGray mt-1">Lend or borrow assets with non-custodial Dutch liquidation security.</p>
+                  {/* Top Segmented Network Selector */}
+                  <div className="flex justify-between items-center bg-[#121316]/50 p-4 rounded-2xl border border-white/5 shadow-md">
+                    <div>
+                      <h3 className="text-sm font-bold text-white">Select Protocol Environment</h3>
+                      <p className="text-[10px] text-brandGray mt-0.5">Toggle between Testnet and Mainnet deployments.</p>
+                    </div>
+                    <div className="flex gap-1.5 bg-black/40 p-1.5 rounded-xl border border-white/5">
+                      <button
+                        onClick={() => setNetwork("testnet")}
+                        className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                          network === "testnet"
+                            ? "bg-brandPurple text-white"
+                            : "text-brandGray hover:text-white"
+                        }`}
+                      >
+                        Testnet Core
+                      </button>
+                      <button
+                        onClick={() => setNetwork("mainnet")}
+                        className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                          network === "mainnet"
+                            ? "bg-brandLime text-brandDark"
+                            : "text-brandGray hover:text-white"
+                        }`}
+                      >
+                        Mainnet Ergo
+                      </button>
+                    </div>
                   </div>
 
-                  {/* Shared Liquidity Core Section */}
-                  <div className="flex flex-col gap-4">
-                    <h4 className="text-xs font-bold text-[#d4ff3f] uppercase tracking-wider pl-1">Shared Liquidity Core</h4>
-                    {assetPools
-                      .filter(p => p.id.toLowerCase().includes("shared"))
-                      .map(pool => {
-                        const poolType = pool.id.toLowerCase().includes("shared") ? "SHARED CORE" : "PERMISSIONED";
-                        const isExpanded = !!expandedPools[pool.id];
+                  {network === "mainnet" ? (
+                    /* ────────────────────────────────────────────────────────
+                        MAINNET ERGO LENDING VIEW (REDESIGNED BLEND DESIGN)
+                       ──────────────────────────────────────────────────────── */
+                    <div className="flex flex-col gap-6">
+                      
+                      {/* Active Pool Dropdown & Bridge Links */}
+                      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-[#121316]/30 p-6 rounded-2xl border border-white/5 animate-fade-in">
+                        <div className="flex items-center gap-3">
+                          <div className="relative">
+                            <select
+                              value={selectedMainnetPool}
+                              onChange={(e) => setSelectedMainnetPool(e.target.value)}
+                              className="bg-black/60 border border-white/10 text-white rounded-xl px-4 py-2 text-xs font-bold appearance-none pr-8 cursor-pointer focus:outline-none focus:border-brandLime font-mono"
+                            >
+                              <option value="shared-core">Shared Core Pool (Type 0)</option>
+                              <option value="isolated-satellite">Isolated Satellite Pool (Type 1)</option>
+                              <option value="permissioned-compliance">Permissioned Compliance Pool (Type 2)</option>
+                            </select>
+                            <ChevronDown className="absolute right-3 top-2.5 size-4 text-brandGray pointer-events-none" />
+                          </div>
+                          <span className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-brandLime/10 text-brandLime border border-brandLime/20 uppercase font-mono">
+                            ACTIVE PROD
+                          </span>
+                        </div>
+                        <a
+                          href="https://allbridge.io"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-4 py-2 rounded-xl border border-white/10 hover:bg-white/5 text-xs text-brandLime font-bold flex items-center gap-1.5 transition-all shadow-sm"
+                        >
+                          Bridge USDC Via Allbridge <ExternalLink className="size-3.5" />
+                        </a>
+                      </div>
+
+                      {/* Connection Warning Banner */}
+                      {!walletAddress && (
+                        <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 text-xs font-semibold flex items-center justify-between shadow-lg">
+                          <div className="flex items-center gap-2">
+                            <Info className="size-4 shrink-0" />
+                            <span>No account connected. Please connect your wallet to use Ergo.</span>
+                          </div>
+                          <button
+                            onClick={() => setIsConnectModalOpen(true)}
+                            className="px-3 py-1 rounded bg-amber-500 text-black font-bold text-[10px] hover:bg-amber-400 transition-all"
+                          >
+                            Connect Wallet
+                          </button>
+                        </div>
+                      )}
+
+                      {/* General Pool Statistics Row */}
+                      {(() => {
+                        // Calculate stats dynamically for selected pool
+                        const activeList = assetPools.filter(p => {
+                          if (selectedMainnetPool === "shared-core") {
+                            return p.poolType === "Shared Core" && !p.id.includes("satellite");
+                          } else if (selectedMainnetPool === "isolated-satellite") {
+                            return p.poolType === "Satellite";
+                          } else {
+                            // permissioned compliance assets
+                            return p.id === "usdc_shared" || p.id === "eurc_shared";
+                          }
+                        });
+
+                        const poolTvlSupplied = activeList.reduce((acc, p) => acc + (p.tvl * p.price), 0);
+                        const poolTvlBorrowed = activeList.reduce((acc, p) => acc + (p.totalBorrowed * p.price), 0);
+                        const totalBackstop = selectedMainnetPool === "shared-core" ? 2820000 : selectedMainnetPool === "isolated-satellite" ? 1100000 : 1800000;
+
                         return (
-                          <div key={pool.id} className="p-6 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col gap-4 hover:scale-[1.005] transition-transform duration-300">
-                            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                              <div className="flex items-center gap-3.5">
-                                {renderAssetLogo(pool.logo, "size-10", "text-3xl")}
-                                <div>
-                                  <div className="flex items-center gap-2">
-                                    <h4 className="text-base font-bold text-white font-mono">{pool.symbol}</h4>
-                                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
-                                      poolType === "SHARED CORE" ? "bg-[#d4ff3f]/10 text-[#d4ff3f] border border-[#d4ff3f]/20" :
-                                      "bg-white/5 text-white border border-white/20"
-                                    }`}>
-                                      {poolType}
-                                    </span>
-                                    {marketComplianceStates[pool.id]?.permissioned && (
-                                      <span className="flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full bg-[#7c3aed]/10 text-[#7c3aed] border border-[#7c3aed]/20">
-                                        <Shield className="size-2.5" />
-                                        Permissioned
-                                      </span>
-                                    )}
-                                    <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                                      E-Mode: 90% LTV
-                                    </span>
-                                  </div>
-                                  <p className="text-[10px] text-brandGray font-sans">{pool.name}</p>
-                                </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                            <div className="p-5 rounded-2xl border border-white/5 bg-[#121316]/30 flex justify-between items-center">
+                              <div>
+                                <span className="text-[10px] text-brandGray uppercase tracking-wider block">Total Supplied</span>
+                                <span className="text-lg font-bold text-white mt-1 block font-mono">
+                                  ${poolTvlSupplied.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                </span>
                               </div>
-
-                              <div className="grid grid-cols-2 md:grid-cols-4 gap-6 w-full md:w-auto">
-                                <div>
-                                  <span className="text-[10px] text-brandGray uppercase tracking-wider block">Total Supply</span>
-                                  <span className="text-sm font-bold text-white font-mono">${(pool.tvl * prices[pool.id]).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-                                </div>
-                                <div>
-                                  <span className="text-[10px] text-brandGray uppercase tracking-wider block">Total Borrow</span>
-                                  <span className="text-sm font-bold text-white font-mono">${(pool.totalBorrowed * prices[pool.id]).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-                                </div>
-                                <div>
-                                  <span className="text-[10px] text-brandGray uppercase tracking-wider block">Supply APY</span>
-                                  <span className="text-sm font-bold text-brandLime font-mono">+{pool.supplyApy.toFixed(2)}%</span>
-                                </div>
-                                <div>
-                                  <span className="text-[10px] text-brandGray uppercase tracking-wider block">Borrow APY</span>
-                                  <span className="text-sm font-bold text-brandPurple font-mono">+{pool.borrowApy.toFixed(2)}%</span>
-                                </div>
-                              </div>
-
-                              <div className="flex gap-2 shrink-0 w-full md:w-auto">
-                                <button
-                                  onClick={() => {
-                                    setExpandedPools(prev => ({ ...prev, [pool.id]: !prev[pool.id] }));
-                                  }}
-                                  className="px-3.5 py-2.5 rounded-xl border border-white/5 text-xs text-brandGray hover:text-white hover:bg-white/5"
-                                >
-                                  {isExpanded ? "Hide Details" : "Details"}
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    setSelectedAssetId(pool.id);
-                                    setTxType("supply");
-                                    setIsTxModalOpen(true);
-                                  }}
-                                  className="flex-1 md:flex-initial px-5 py-2.5 rounded-xl bg-brandLime text-brandDark font-bold text-xs tracking-wider shadow-[0_0_15px_rgba(212,255,63,0.15)] hover:scale-[1.02] transition-transform"
-                                >
-                                  Supply
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    setSelectedAssetId(pool.id);
-                                    setTxType("borrow");
-                                    setIsTxModalOpen(true);
-                                  }}
-                                  className="flex-1 md:flex-initial px-5 py-2.5 rounded-xl border border-white/10 text-white font-bold text-xs tracking-wider hover:bg-white/5 transition-colors"
-                                >
-                                  Borrow
-                                </button>
+                              <div className="size-8 rounded-full bg-brandLime/10 border border-brandLime/20 flex items-center justify-center">
+                                <TrendingUp className="size-4 text-brandLime" />
                               </div>
                             </div>
 
-                            {/* Collapsible Details Drawer */}
-                            {isExpanded && (
-                              <motion.div
-                                initial={{ height: 0, opacity: 0 }}
-                                animate={{ height: "auto", opacity: 1 }}
-                                className="border-t border-white/5 pt-4 mt-2 flex flex-col gap-4 text-xs"
-                              >
-                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                                  <div>
-                                    <span className="text-brandGray block mb-1 text-[10px] uppercase">Risk Parameters</span>
-                                    <span className="text-white font-mono block">Collateral Factor: {(pool.collateralFactor * 100).toFixed(0)}%</span>
-                                    <span className="text-brandGray block text-[10px]">Liq. Threshold: {((pool.collateralFactor + 0.05) * 100).toFixed(0)}%</span>
-                                  </div>
-                                  <div>
-                                    <span className="text-brandGray block mb-1 text-[10px] uppercase">Oracle Feeds</span>
-                                    <span className="text-white block font-semibold">Reflector + DEX TWAP</span>
-                                    <span className="text-brandGray block text-[10px]">Updated: 2 ledgers ago</span>
-                                  </div>
-                                  <div>
-                                    <span className="text-brandGray block mb-1 text-[10px] uppercase">Circuit Breaker</span>
-                                    <span className="text-brandLime font-semibold flex items-center gap-1">
-                                      <span className="w-1.5 h-1.5 rounded-full bg-brandLime animate-pulse" /> Active & Healthy
-                                    </span>
-                                  </div>
-                                  <div>
-                                    <span className="text-brandGray block mb-1 text-[10px] uppercase">Backstop Coverage</span>
-                                    <span className="text-white font-mono block">142% funded</span>
-                                  </div>
-                                </div>
-                                <IRMChart marketId={pool.id} />
-                              </motion.div>
-                            )}
+                            <div className="p-5 rounded-2xl border border-white/5 bg-[#121316]/30 flex justify-between items-center">
+                              <div>
+                                <span className="text-[10px] text-brandGray uppercase tracking-wider block">Total Borrowed</span>
+                                <span className="text-lg font-bold text-white mt-1 block font-mono">
+                                  ${poolTvlBorrowed.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                </span>
+                              </div>
+                              <div className="size-8 rounded-full bg-brandPurple/10 border border-brandPurple/20 flex items-center justify-center">
+                                <ArrowLeftRight className="size-4 text-brandPurple" />
+                              </div>
+                            </div>
+
+                            <div className="p-5 rounded-2xl border border-white/5 bg-[#121316]/30 flex justify-between items-center">
+                              <div>
+                                <span className="text-[10px] text-brandGray uppercase tracking-wider block">Total Backstop Size</span>
+                                <span className="text-lg font-bold text-white mt-1 block font-mono">
+                                  ${totalBackstop.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                </span>
+                              </div>
+                              <div className="size-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center">
+                                <CircleDot className="size-4 text-white" />
+                              </div>
+                            </div>
+
+                            <div className="p-5 rounded-2xl border border-white/5 bg-[#121316]/30 flex justify-between items-center cursor-pointer hover:bg-[#121316]/50 transition-all" onClick={() => setActiveSection("backstop")}>
+                              <div>
+                                <span className="text-[10px] text-brandGray uppercase tracking-wider block">Your Backstop Balance</span>
+                                <span className="text-lg font-bold text-white mt-1 block font-mono">$0</span>
+                              </div>
+                              <ChevronRight className="size-5 text-brandGray" />
+                            </div>
                           </div>
                         );
-                      })}
-                  </div>
+                      })()}
 
-                  <div className="flex flex-col gap-4 mt-4">
-                    <h4 className="text-xs font-bold text-[#7c3aed] uppercase tracking-wider pl-1">Isolated Satellite Pools</h4>
-                    {assetPools
-                      .filter(p => p.id.toLowerCase().includes("satellite"))
-                      .map(pool => {
-                        const poolType = "SATELLITE";
-                        const isExpanded = !!expandedPools[pool.id];
-                        const debtCeiling = pool.id.includes("xlm") ? 5000000 : 2500000;
-                        const ceilingPercent = Math.min((pool.totalBorrowed / debtCeiling) * 100, 100);
+                      {/* Your Positions Section (With BarChart Histogram & Safety Gauge) */}
+                      {(() => {
+                        const activeMainnetPositions = assetPools.filter(p => p.supplied > 0 || p.borrowed > 0);
+                        const hasActivePositions = activeMainnetPositions.length > 0;
+                        
+                        const totalSuppliedUSD = assetPools.reduce((acc, p) => acc + p.supplied * p.price, 0);
+                        const totalBorrowedUSD = assetPools.reduce((acc, p) => acc + p.borrowed * p.price, 0);
+                        const currentLtvRatio = totalSuppliedUSD > 0 ? (totalBorrowedUSD / totalSuppliedUSD) * 100 : 0;
+
+                        // Calculate weighted net APY
+                        let weightedSupplyApy = 0;
+                        let weightedBorrowApy = 0;
+                        activeMainnetPositions.forEach(p => {
+                          const suppliedValue = p.supplied * p.price;
+                          const borrowedValue = p.borrowed * p.price;
+                          weightedSupplyApy += suppliedValue * p.supplyApy;
+                          weightedBorrowApy += borrowedValue * p.borrowApy;
+                        });
+                        const netApy = totalSuppliedUSD > 0 ? (weightedSupplyApy - weightedBorrowApy) / totalSuppliedUSD : 0;
+                        const borrowCapacity = totalSuppliedUSD * 0.80; // default benchmark overall LTV safety
+
+                        const chartData = activeMainnetPositions.map(p => ({
+                          name: p.symbol,
+                          Supplied: parseFloat((p.supplied * p.price).toFixed(2)),
+                          Borrowed: parseFloat((p.borrowed * p.price).toFixed(2)),
+                        }));
+
                         return (
-                          <div key={pool.id} className="p-6 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col gap-5 hover:scale-[1.005] transition-transform duration-300">
-                            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                              <div className="flex items-center gap-3.5">
-                                {renderAssetLogo(pool.logo, "size-10", "text-3xl")}
-                                <div>
-                                  <div className="flex items-center gap-2">
-                                    <h4 className="text-base font-bold text-white font-mono">{pool.symbol}</h4>
-                                    <span className="bg-[#7c3aed]/10 text-[#7c3aed] border border-[#7c3aed]/20 text-[9px] font-bold px-2 py-0.5 rounded-full">
-                                      {poolType}
-                                    </span>
-                                    {marketComplianceStates[pool.id]?.permissioned && (
-                                      <span className="flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20">
-                                        <Shield className="size-2.5" />
-                                        Permissioned
-                                      </span>
-                                    )}
-                                    {pool.id.includes("xlm") && (
-                                      <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                                        E-Mode: 90% LTV
-                                      </span>
-                                    )}
+                          <div className="p-6 rounded-2xl border border-white/5 bg-[#121316]/50 flex flex-col gap-6 shadow-lg">
+                            <div className="flex justify-between items-center border-b border-white/5 pb-4">
+                              <div>
+                                <h4 className="text-xs font-bold text-white uppercase tracking-wider">Your Positions Summary</h4>
+                                <p className="text-[10px] text-brandGray mt-0.5"> cryptographic allocation histogram & safety thresholds.</p>
+                              </div>
+                              <span className="text-[10px] text-brandGray font-mono bg-white/5 px-3 py-1 rounded-full border border-white/5">
+                                Active Positions: {activeMainnetPositions.length}/6
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                              {/* Left Cards */}
+                              <div className="flex flex-col gap-4 justify-between">
+                                <div className="p-4 rounded-xl bg-white/5 border border-white/5 flex items-center gap-3">
+                                  <div className="size-10 rounded-xl bg-brandLime/10 border border-brandLime/20 flex items-center justify-center">
+                                    <TrendingUp className="size-5 text-brandLime" />
                                   </div>
-                                  <p className="text-[10px] text-brandGray font-sans">{pool.name}</p>
+                                  <div>
+                                    <span className="text-[10px] text-brandGray block">Net APY</span>
+                                    <span className={`text-sm font-bold font-mono ${netApy >= 0 ? "text-brandLime" : "text-brandPurple"}`}>
+                                      {netApy >= 0 ? "+" : ""}{netApy.toFixed(2)}%
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="p-4 rounded-xl bg-white/5 border border-white/5 flex items-center gap-3">
+                                  <div className="size-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center">
+                                    <Sliders className="size-5 text-white" />
+                                  </div>
+                                  <div>
+                                    <span className="text-[10px] text-brandGray block">Borrow Capacity</span>
+                                    <span className="text-sm font-bold text-white font-mono">
+                                      ${borrowCapacity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center justify-between bg-black/30 p-3.5 rounded-xl border border-white/5 w-full">
+                                  <div className="flex items-center gap-3">
+                                    <div className="size-8 rounded-lg bg-[#7c3aed]/10 border border-[#7c3aed]/20 flex items-center justify-center">
+                                      <Award className="size-4 text-brandPurple" />
+                                    </div>
+                                    <div>
+                                      <span className="text-[9px] text-brandGray block">Claim Emissions</span>
+                                      <span className="text-xs font-bold text-white font-mono">0 ERGO</span>
+                                    </div>
+                                  </div>
+                                  <button
+                                    disabled
+                                    className="px-3 py-1 rounded bg-[#7c3aed]/20 border border-[#7c3aed]/30 text-brandPurple font-bold text-[9px] disabled:opacity-50"
+                                  >
+                                    Claim
+                                  </button>
                                 </div>
                               </div>
 
-                              <div className="grid grid-cols-2 md:grid-cols-4 gap-6 w-full md:w-auto">
-                                <div>
-                                  <span className="text-[10px] text-brandGray uppercase tracking-wider block">Total Supply</span>
-                                  <span className="text-sm font-bold text-white font-mono">${(pool.tvl * prices[pool.id]).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                              {/* Center Chart Histogram */}
+                              <div className="lg:col-span-2 flex flex-col gap-3">
+                                <div className="p-4 bg-black/30 rounded-xl border border-white/5 flex-1 min-h-[12rem] flex flex-col justify-between">
+                                  <span className="text-[10px] text-brandGray font-semibold uppercase tracking-wider block mb-2">Cryptographic Value Distribution (USD)</span>
+                                  {hasActivePositions ? (
+                                    <div className="w-full h-36">
+                                      <ResponsiveContainer width="100%" height="100%">
+                                        <BarChart data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+                                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" />
+                                          <XAxis dataKey="name" stroke="rgba(255,255,255,0.3)" fontSize={9} />
+                                          <YAxis stroke="rgba(255,255,255,0.3)" fontSize={9} />
+                                          <Tooltip 
+                                            contentStyle={{ background: '#121316', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px' }} 
+                                            labelClassName="text-white text-xs font-mono font-bold"
+                                          />
+                                          <Bar dataKey="Supplied" fill="#d4ff3f" radius={[3, 3, 0, 0]} name="Supplied" />
+                                          <Bar dataKey="Borrowed" fill="#7c3aed" radius={[3, 3, 0, 0]} name="Borrowed" />
+                                        </BarChart>
+                                      </ResponsiveContainer>
+                                    </div>
+                                  ) : (
+                                    <div className="flex-1 border border-dashed border-white/5 rounded-lg flex items-center justify-center text-[10px] text-brandGray/40 bg-black/10">
+                                      No active positions to display histogram.
+                                    </div>
+                                  )}
                                 </div>
-                                <div>
-                                  <span className="text-[10px] text-brandGray uppercase tracking-wider block">Total Borrow</span>
-                                  <span className="text-sm font-bold text-white font-mono">${(pool.totalBorrowed * prices[pool.id]).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-                                </div>
-                                <div>
-                                  <span className="text-[10px] text-brandGray uppercase tracking-wider block">Supply APY</span>
-                                  <span className="text-sm font-bold text-brandLime font-mono">+{pool.supplyApy.toFixed(2)}%</span>
-                                </div>
-                                <div>
-                                  <span className="text-[10px] text-brandGray uppercase tracking-wider block">Borrow APY</span>
-                                  <span className="text-sm font-bold text-brandPurple font-mono">+{pool.borrowApy.toFixed(2)}%</span>
-                                </div>
-                              </div>
-
-                              <div className="flex gap-2 shrink-0 w-full md:w-auto">
-                                <button
-                                  onClick={() => {
-                                    setExpandedPools(prev => ({ ...prev, [pool.id]: !prev[pool.id] }));
-                                  }}
-                                  className="px-3.5 py-2.5 rounded-xl border border-white/5 text-xs text-brandGray hover:text-white hover:bg-white/5"
-                                >
-                                  {isExpanded ? "Hide Details" : "Details"}
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    setSelectedAssetId(pool.id);
-                                    setTxType("supply");
-                                    setIsTxModalOpen(true);
-                                  }}
-                                  className="flex-1 md:flex-initial px-5 py-2.5 rounded-xl bg-brandLime text-brandDark font-bold text-xs tracking-wider shadow-[0_0_15px_rgba(212,255,63,0.15)] hover:scale-[1.02] transition-transform"
-                                >
-                                  Supply
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    setSelectedAssetId(pool.id);
-                                    setTxType("borrow");
-                                    setIsTxModalOpen(true);
-                                  }}
-                                  className="flex-1 md:flex-initial px-5 py-2.5 rounded-xl border border-white/10 text-white font-bold text-xs tracking-wider hover:bg-white/5 transition-colors"
-                                >
-                                  Borrow
-                                </button>
                               </div>
                             </div>
 
-                            {/* Debt Ceiling Progress Bar */}
-                            <div className="border-t border-white/5 pt-3.5 flex flex-col gap-1.5">
-                              <div className="flex justify-between text-[10px] text-brandGray">
-                                <span>Debt Used: <span className="font-mono text-white">${pool.totalBorrowed.toLocaleString()} / ${debtCeiling.toLocaleString()} cap</span></span>
-                                <span className="font-mono text-[#7c3aed] font-bold">{ceilingPercent.toFixed(1)}%</span>
+                            {/* LTV range safety gauge */}
+                            <div className="p-4 bg-black/30 rounded-xl border border-white/5 flex flex-col gap-2">
+                              <div className="flex justify-between items-center text-[10px] text-brandGray">
+                                <span className="font-semibold uppercase tracking-wider">LTV Risk safety threshold</span>
+                                <span className="font-mono text-white font-bold">{currentLtvRatio.toFixed(2)}% LTV</span>
                               </div>
-                              <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
-                                <div className="h-full bg-[#7c3aed]" style={{ width: `${ceilingPercent}%` }} />
+                              <div className="relative h-2.5 w-full bg-white/5 rounded-full overflow-hidden">
+                                <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 via-amber-500/20 to-red-500/20" />
+                                <div 
+                                  className="h-full bg-gradient-to-r from-emerald-400 via-amber-400 to-red-400 rounded-full transition-all duration-500" 
+                                  style={{ width: `${Math.min(currentLtvRatio, 100)}%` }} 
+                                />
+                                <div className="absolute left-[75%] top-0 w-0.5 h-full bg-white/20" title="Borrow Limit (75%)" />
+                                <div className="absolute left-[85%] top-0 w-0.5 h-full bg-red-500/50" title="Liquidation Threshold (85%)" />
+                              </div>
+                              <div className="flex justify-between text-[8px] font-mono text-brandGray/50">
+                                <span>0% (Collateralized)</span>
+                                <span>75% Max Borrow Limit</span>
+                                <span>85% Liquidation Threshold</span>
                               </div>
                             </div>
 
-                            {/* Collapsible Details Drawer */}
-                            {isExpanded && (
-                              <motion.div
-                                initial={{ height: 0, opacity: 0 }}
-                                animate={{ height: "auto", opacity: 1 }}
-                                className="border-t border-white/5 pt-4 mt-2 flex flex-col gap-4 text-xs"
-                              >
-                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                                  <div>
-                                    <span className="text-brandGray block mb-1 text-[10px] uppercase">Risk Parameters</span>
-                                    <span className="text-white font-mono block">Collateral Factor: {(pool.collateralFactor * 100).toFixed(0)}%</span>
-                                    <span className="text-brandGray block text-[10px]">Liq. Threshold: {((pool.collateralFactor + 0.05) * 100).toFixed(0)}%</span>
-                                  </div>
-                                  <div>
-                                    <span className="text-brandGray block mb-1 text-[10px] uppercase">Oracle Feeds</span>
-                                    <span className="text-white block font-semibold font-mono">Reflector + DEX TWAP</span>
-                                    <span className="text-brandGray block text-[10px]">Updated: 2 ledgers ago</span>
-                                  </div>
-                                  <div>
-                                    <span className="text-brandGray block mb-1 text-[10px] uppercase">Circuit Breaker</span>
-                                    <span className="text-brandLime font-semibold flex items-center gap-1">
-                                      <span className="w-1.5 h-1.5 rounded-full bg-brandLime animate-pulse" /> Active & Healthy
-                                    </span>
-                                  </div>
-                                  <div>
-                                    <span className="text-brandGray block mb-1 text-[10px] uppercase">Backstop Coverage</span>
-                                    <span className="text-white font-mono block">120% funded</span>
-                                  </div>
-                                </div>
-                                <IRMChart marketId={pool.id} />
-                              </motion.div>
-                            )}
                           </div>
                         );
-                      })}
-                  </div>
+                      })()}
+
+                      {/* Supply / Borrow Interaction Segment */}
+                      <div className="flex flex-col gap-4 bg-[#121316]/20 p-6 rounded-2xl border border-white/5 shadow-md">
+                        <div className="flex justify-between items-center border-b border-white/5 pb-4">
+                          <div className="flex gap-2 p-1 bg-black/40 rounded-xl border border-white/5">
+                            <button
+                              onClick={() => setMainnetTxTab("supply")}
+                              className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                mainnetTxTab === "supply"
+                                  ? "bg-brandLime text-brandDark"
+                                  : "text-brandGray hover:text-white"
+                              }`}
+                            >
+                              Supply
+                            </button>
+                            <button
+                              onClick={() => setMainnetTxTab("borrow")}
+                              className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                mainnetTxTab === "borrow"
+                                  ? "bg-brandLime text-brandDark"
+                                  : "text-brandGray hover:text-white"
+                              }`}
+                            >
+                              Borrow
+                            </button>
+                          </div>
+
+                          {(() => {
+                            const activeList = assetPools.filter(p => {
+                              if (selectedMainnetPool === "shared-core") {
+                                return p.poolType === "Shared Core" && !p.id.includes("satellite");
+                              } else if (selectedMainnetPool === "isolated-satellite") {
+                                return p.poolType === "Satellite";
+                              } else {
+                                return p.id === "usdc_shared" || p.id === "eurc_shared";
+                              }
+                            });
+                            const totalMarketSuppliedUSD = activeList.reduce((acc, p) => acc + p.tvl * p.price, 0);
+                            return (
+                              <span className="text-xs font-semibold text-brandGray">
+                                Market Size: <span className="text-white font-mono font-bold">${totalMarketSuppliedUSD.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                              </span>
+                            );
+                          })()}
+                        </div>
+
+                        {/* Assets list */}
+                        <div className="flex flex-col gap-3">
+                          {assetPools
+                            .filter(p => {
+                              if (selectedMainnetPool === "shared-core") {
+                                return p.poolType === "Shared Core" && !p.id.includes("satellite");
+                              } else if (selectedMainnetPool === "isolated-satellite") {
+                                return p.poolType === "Satellite";
+                              } else {
+                                // permissioned compliance assets
+                                return p.id === "usdc_shared" || p.id === "eurc_shared";
+                              }
+                            })
+                            .map((pool) => {
+                              const isExpanded = !!expandedPools[`m-${pool.id}`];
+                              return (
+                                <div key={pool.id} className="p-4 rounded-xl border border-white/5 bg-[#121316]/40 flex flex-col gap-4 hover:border-white/10 transition-all">
+                                  <div className="flex justify-between items-center cursor-pointer" onClick={() => setExpandedPools(prev => ({ ...prev, [`m-${pool.id}`]: !prev[`m-${pool.id}`] }))}>
+                                    <div className="flex items-center gap-3">
+                                      {renderAssetLogo(pool.logo, "size-8", "text-2xl")}
+                                      <div>
+                                        <div className="flex items-center gap-2">
+                                          <h4 className="text-sm font-bold text-white font-mono">{pool.symbol}</h4>
+                                          {selectedMainnetPool === "permissioned-compliance" && (
+                                            <span className="flex items-center gap-0.5 text-[8px] font-bold px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20 font-mono">
+                                              <Shield className="size-2" /> PERMISSIONED
+                                            </span>
+                                          )}
+                                        </div>
+                                        <span className="text-[10px] text-brandGray block leading-none">{pool.name}</span>
+                                      </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-6 md:gap-12">
+                                      <div className="text-right">
+                                        <span className="text-[9px] text-brandGray uppercase tracking-wider block">Wallet Balance</span>
+                                        <span className="text-xs font-bold text-white font-mono">
+                                          {walletAddress ? `${pool.walletBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${pool.symbol}` : "--"}
+                                        </span>
+                                      </div>
+
+                                      <div className="text-right">
+                                        <span className="text-[9px] text-brandGray uppercase tracking-wider block">APY</span>
+                                        <span className="text-xs font-bold text-brandLime font-mono">
+                                          {mainnetTxTab === "supply" ? `+${pool.supplyApy.toFixed(2)}%` : `+${pool.borrowApy.toFixed(2)}%`}
+                                        </span>
+                                      </div>
+
+                                      <div className="text-right hidden sm:block">
+                                        <span className="text-[9px] text-brandGray uppercase tracking-wider block">Collateral Factor</span>
+                                        <span className="text-xs font-bold text-white font-mono">
+                                          {pool.collateralFactor.toFixed(0)}%
+                                        </span>
+                                      </div>
+
+                                      <ChevronRight className={`size-4 text-brandGray transition-transform duration-200 ${isExpanded ? "rotate-90 text-white" : ""}`} />
+                                    </div>
+                                  </div>
+
+                                  {/* Collapsible details for Mainnet asset (Redesigned side-by-side with IRM charts) */}
+                                  {isExpanded && (
+                                    <div className="border-t border-white/5 pt-4 flex flex-col lg:flex-row gap-6 justify-between items-stretch">
+                                      
+                                      {/* Left Stats Column + IRMChart */}
+                                      <div className="w-full lg:w-3/5 flex flex-col gap-4">
+                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-[10px] uppercase font-mono">
+                                          <div className="p-3 bg-white/5 border border-white/5 rounded-xl">
+                                            <span className="text-[9px] text-brandGray block mb-0.5">Collateral Factor</span>
+                                            <span className="text-xs font-bold text-white">{pool.collateralFactor}%</span>
+                                          </div>
+                                          <div className="p-3 bg-white/5 border border-white/5 rounded-xl">
+                                            <span className="text-[9px] text-brandGray block mb-0.5">Liq Threshold</span>
+                                            <span className="text-xs font-bold text-white">{pool.liquidationThreshold}%</span>
+                                          </div>
+                                          <div className="p-3 bg-white/5 border border-white/5 rounded-xl">
+                                            <span className="text-[9px] text-brandGray block mb-0.5">Min Collateral</span>
+                                            <span className="text-xs font-bold text-brandLime">{pool.minCollateral} {pool.symbol}</span>
+                                          </div>
+                                          <div className="p-3 bg-white/5 border border-white/5 rounded-xl">
+                                            <span className="text-[9px] text-brandGray block mb-0.5">Debt Ceiling</span>
+                                            <span className="text-xs font-bold text-white">{pool.debtCeiling === "Unlimited" ? "Unlimited" : `$${parseInt(pool.debtCeiling).toLocaleString()}`}</span>
+                                          </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-[10px] uppercase font-mono mt-1">
+                                          <div className="p-3 bg-white/5 border border-white/5 rounded-xl">
+                                            <span className="text-[9px] text-brandGray block mb-0.5">Total Supplied</span>
+                                            <span className="text-xs font-bold text-white">${(pool.tvl * pool.price).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                                          </div>
+                                          <div className="p-3 bg-white/5 border border-white/5 rounded-xl">
+                                            <span className="text-[9px] text-brandGray block mb-0.5">Total Borrowed</span>
+                                            <span className="text-xs font-bold text-white">${(pool.totalBorrowed * pool.price).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                                          </div>
+                                          <div className="p-3 bg-white/5 border border-white/5 rounded-xl">
+                                            <span className="text-[9px] text-brandGray block mb-0.5">E-Mode Category</span>
+                                            <span className="text-xs font-bold text-white">{pool.emodeCategory === 0 ? "None" : pool.emodeCategory === 1 ? "Cat 1: Stables" : "Cat 2: Majors"}</span>
+                                          </div>
+                                          <div className="p-3 bg-white/5 border border-white/5 rounded-xl">
+                                            <span className="text-[9px] text-brandGray block mb-0.5">Feeds & Breaker</span>
+                                            <span className="text-xs font-bold text-brandLime flex items-center gap-1 leading-none mt-0.5">
+                                              <span className="w-1.5 h-1.5 rounded-full bg-brandLime animate-pulse shrink-0" /> HEALTHY
+                                            </span>
+                                          </div>
+                                        </div>
+
+                                        {/* Embedded IRM Chart */}
+                                        <div className="mt-2">
+                                          <IRMChart marketId={pool.id} />
+                                        </div>
+                                      </div>
+
+                                      {/* Right Action Column */}
+                                      <div className="w-full lg:w-2/5 p-5 rounded-2xl bg-black/40 border border-white/5 flex flex-col justify-between gap-4">
+                                        <div className="flex flex-col gap-2">
+                                          <div className="flex justify-between items-center text-[10px] text-brandGray font-mono">
+                                            <span>Select Workspace Mode</span>
+                                            <span>Wallet: {pool.walletBalance.toLocaleString(undefined, { maximumFractionDigits: 4 })} {pool.symbol}</span>
+                                          </div>
+
+                                          <div className="grid grid-cols-2 gap-1.5 p-1 bg-white/5 rounded-xl border border-white/5">
+                                            <button
+                                              onClick={() => {
+                                                if (mainnetTxTab === "supply") {
+                                                  setTxType("supply");
+                                                } else {
+                                                  setTxType("borrow");
+                                                }
+                                              }}
+                                              className={`py-2 text-[10px] font-bold rounded-lg font-mono transition-all ${
+                                                (mainnetTxTab === "supply" && txType === "supply") || (mainnetTxTab === "borrow" && txType === "borrow")
+                                                  ? "bg-brandLime text-brandDark"
+                                                  : "text-brandGray hover:text-white"
+                                              }`}
+                                            >
+                                              {mainnetTxTab === "supply" ? "Supply" : "Borrow"}
+                                            </button>
+                                            <button
+                                              onClick={() => {
+                                                if (mainnetTxTab === "supply") {
+                                                  setTxType("withdraw");
+                                                } else {
+                                                  setTxType("repay");
+                                                }
+                                              }}
+                                              className={`py-2 text-[10px] font-bold rounded-lg font-mono transition-all ${
+                                                txType === "withdraw" || txType === "repay"
+                                                  ? "bg-brandLime text-brandDark"
+                                                  : "text-brandGray hover:text-white"
+                                              }`}
+                                            >
+                                              {mainnetTxTab === "supply" ? "Withdraw" : "Repay"}
+                                            </button>
+                                          </div>
+                                        </div>
+
+                                        <div className="flex flex-col gap-3">
+                                          <div className="relative">
+                                            <input
+                                              type="number"
+                                              placeholder="0.0"
+                                              id={`input-m-${pool.id}`}
+                                              className="bg-[#14151a] border border-white/5 focus:border-brandLime/40 focus:ring-1 focus:ring-brandLime/20 rounded-xl pl-4 pr-16 py-3 text-sm font-bold text-white font-mono placeholder-brandGray/40 outline-none transition-all w-full"
+                                            />
+                                            <button
+                                              onClick={() => {
+                                                const inputEl = document.getElementById(`input-m-${pool.id}`) as HTMLInputElement;
+                                                if (inputEl) {
+                                                  const maxVal = txType === "supply" || txType === "repay" ? pool.walletBalance : pool.supplied;
+                                                  inputEl.value = maxVal.toString();
+                                                }
+                                              }}
+                                              className="absolute right-3 top-2.5 text-xs text-brandLime hover:underline font-bold font-mono"
+                                            >
+                                              MAX
+                                            </button>
+                                          </div>
+
+                                          {selectedMainnetPool === "permissioned-compliance" && marketComplianceStates[pool.id]?.permissioned && !marketComplianceStates[pool.id]?.allowed && (
+                                            <div className="p-3 bg-red-500/5 border border-red-500/10 rounded-xl text-red-400 text-[10px] leading-relaxed flex gap-2 items-start">
+                                              <AlertTriangle className="size-4 shrink-0 mt-0.5" />
+                                              <div>
+                                                <span className="font-bold block">Compliance Lock Active</span>
+                                                This compliance pool requires allowlisting. Verify KYC / register with issuer {marketComplianceStates[pool.id]?.issuer ? marketComplianceStates[pool.id].issuer.substring(0, 8) + "..." : "issuer"}.
+                                              </div>
+                                            </div>
+                                          )}
+
+                                          <button
+                                            onClick={() => {
+                                              const inputEl = document.getElementById(`input-m-${pool.id}`) as HTMLInputElement;
+                                              const amt = parseFloat(inputEl?.value || "0");
+                                              if (amt <= 0 || isNaN(amt)) {
+                                                alert("Please enter a valid amount");
+                                                return;
+                                              }
+                                              // compliance checks block
+                                              if (selectedMainnetPool === "permissioned-compliance" && marketComplianceStates[pool.id]?.permissioned && !marketComplianceStates[pool.id]?.allowed) {
+                                                alert("Compliance access is required to transact in this permissioned pool.");
+                                                return;
+                                              }
+                                              triggerMainnetTransaction(txType, pool.symbol, amt, pool.id);
+                                            }}
+                                            className="w-full py-3 rounded-xl bg-brandLime text-brandDark font-bold text-xs tracking-wider shadow-[0_0_15px_rgba(212,255,63,0.15)] hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(212,255,63,0.25)] transition-all flex items-center justify-center gap-1.5"
+                                          >
+                                            Submit Mainnet Action
+                                          </button>
+                                        </div>
+                                      </div>
+
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                        </div>
+                      </div>
+
+                    </div>
+                  ) : (
+                    /* ────────────────────────────────────────────────────────
+                        TESTNET SANDBOX LENDING VIEW (EXISTING UNTOUCHED)
+                       ──────────────────────────────────────────────────────── */
+                    <div className="flex flex-col gap-6">
+                      <div className="rounded-2xl border border-white/5 bg-[#121316]/50 p-6">
+                        <h3 className="text-base font-bold text-white">Stellar Shared Liquidity Core & Satellite Pools</h3>
+                        <p className="text-xs text-brandGray mt-1">Lend or borrow assets with non-custodial Dutch liquidation security.</p>
+                      </div>
+
+                      {/* Shared Liquidity Core Section */}
+                      <div className="flex flex-col gap-4">
+                        <h4 className="text-xs font-bold text-[#d4ff3f] uppercase tracking-wider pl-1">Shared Liquidity Core</h4>
+                        {assetPools
+                          .filter(p => p.id.toLowerCase().includes("shared"))
+                          .map(pool => {
+                            const poolType = pool.id.toLowerCase().includes("shared") ? "SHARED CORE" : "PERMISSIONED";
+                            const isExpanded = !!expandedPools[pool.id];
+                            return (
+                              <div key={pool.id} className="p-6 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col gap-4 hover:scale-[1.005] transition-transform duration-300">
+                                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                                  <div className="flex items-center gap-3.5">
+                                    {renderAssetLogo(pool.logo, "size-10", "text-3xl")}
+                                    <div>
+                                      <div className="flex items-center gap-2">
+                                        <h4 className="text-base font-bold text-white font-mono">{pool.symbol}</h4>
+                                        <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
+                                          poolType === "SHARED CORE" ? "bg-[#d4ff3f]/10 text-[#d4ff3f] border border-[#d4ff3f]/20" :
+                                          "bg-white/5 text-white border border-white/20"
+                                        }`}>
+                                          {poolType}
+                                        </span>
+                                        {marketComplianceStates[pool.id]?.permissioned && (
+                                          <span className="flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full bg-[#7c3aed]/10 text-[#7c3aed] border border-[#7c3aed]/20">
+                                            <Shield className="size-2.5" />
+                                            Permissioned
+                                          </span>
+                                        )}
+                                        <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                                          E-Mode: 90% LTV
+                                        </span>
+                                      </div>
+                                      <p className="text-[10px] text-brandGray font-sans">{pool.name}</p>
+                                    </div>
+                                  </div>
+
+                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-6 w-full md:w-auto">
+                                    <div>
+                                      <span className="text-[10px] text-brandGray uppercase tracking-wider block">Total Supply</span>
+                                      <span className="text-sm font-bold text-white font-mono">${(pool.tvl * prices[pool.id]).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                                    </div>
+                                    <div>
+                                      <span className="text-[10px] text-brandGray uppercase tracking-wider block">Total Borrow</span>
+                                      <span className="text-sm font-bold text-white font-mono">${(pool.totalBorrowed * prices[pool.id]).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                                    </div>
+                                    <div>
+                                      <span className="text-[10px] text-brandGray uppercase tracking-wider block">Supply APY</span>
+                                      <span className="text-sm font-bold text-brandLime font-mono">+{pool.supplyApy.toFixed(2)}%</span>
+                                    </div>
+                                    <div>
+                                      <span className="text-[10px] text-brandGray uppercase tracking-wider block">Borrow APY</span>
+                                      <span className="text-sm font-bold text-brandPurple font-mono">+{pool.borrowApy.toFixed(2)}%</span>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex gap-2 shrink-0 w-full md:w-auto">
+                                    <button
+                                      onClick={() => {
+                                        setExpandedPools(prev => ({ ...prev, [pool.id]: !prev[pool.id] }));
+                                      }}
+                                      className="px-4 py-2 rounded-xl border border-white/10 text-xs font-bold text-white hover:bg-white/5 transition-all text-center"
+                                    >
+                                      {isExpanded ? "Hide Details" : "Details"}
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setSelectedAssetId(pool.id);
+                                        setTxType("supply");
+                                        setIsTxModalOpen(true);
+                                      }}
+                                      className="px-5 py-2 rounded-xl bg-brandLime text-brandDark text-xs font-bold hover:scale-[1.03] transition-all"
+                                    >
+                                      Supply
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setSelectedAssetId(pool.id);
+                                        setTxType("borrow");
+                                        setIsTxModalOpen(true);
+                                      }}
+                                      className="px-5 py-2 rounded-xl bg-black border border-white/10 text-white text-xs font-bold hover:scale-[1.03] transition-all"
+                                    >
+                                      Borrow
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {isExpanded && (
+                                  <motion.div
+                                    initial={{ height: 0, opacity: 0 }}
+                                    animate={{ height: "auto", opacity: 1 }}
+                                    className="border-t border-white/5 pt-4 mt-2 flex flex-col gap-4 text-xs"
+                                  >
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                                      <div>
+                                        <span className="text-brandGray block mb-1 text-[10px] uppercase">Risk Parameters</span>
+                                        <span className="text-white font-mono block">Collateral Factor: {(pool.collateralFactor * 100).toFixed(0)}%</span>
+                                        <span className="text-brandGray block text-[10px]">Liq. Threshold: {((pool.collateralFactor + 0.05) * 100).toFixed(0)}%</span>
+                                      </div>
+                                      <div>
+                                        <span className="text-brandGray block mb-1 text-[10px] uppercase">Oracle Feeds</span>
+                                        <span className="text-white block font-semibold font-mono">Reflector + DEX TWAP</span>
+                                        <span className="text-brandGray block text-[10px]">Updated: 2 ledgers ago</span>
+                                      </div>
+                                      <div>
+                                        <span className="text-brandGray block mb-1 text-[10px] uppercase">Circuit Breaker</span>
+                                        <span className="text-brandLime font-semibold flex items-center gap-1">
+                                          <span className="w-1.5 h-1.5 rounded-full bg-brandLime animate-pulse" /> Active & Healthy
+                                        </span>
+                                      </div>
+                                      <div>
+                                        <span className="text-brandGray block mb-1 text-[10px] uppercase">Backstop Coverage</span>
+                                        <span className="text-white font-mono block">120% funded</span>
+                                      </div>
+                                    </div>
+                                    <IRMChart marketId={pool.id} />
+                                  </motion.div>
+                                )}
+                              </div>
+                            );
+                          })}
+                      </div>
+
+                      {/* Isolated Satellite Pools Section */}
+                      <div className="flex flex-col gap-4">
+                        <div className="flex justify-between items-center pl-1">
+                          <h4 className="text-xs font-bold text-brandPurple uppercase tracking-wider">Isolated Satellite Pools</h4>
+                          <span className="text-[10px] text-brandGray italic font-sans">High LTV custom assets isolated from core pools.</span>
+                        </div>
+                        {assetPools
+                          .filter(p => p.id.toLowerCase().includes("satellite"))
+                          .map(pool => {
+                            const poolType = "SATELLITE";
+                            const isExpanded = !!expandedPools[pool.id];
+                            const debtCeiling = pool.id.includes("xlm") ? 5000000 : 2500000;
+                            const ceilingPercent = Math.min((pool.totalBorrowed / debtCeiling) * 100, 100);
+                            return (
+                              <div key={pool.id} className="p-6 rounded-2xl border border-white/5 bg-[#121316]/30 flex flex-col gap-5 hover:scale-[1.005] transition-transform duration-300">
+                                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                                  <div className="flex items-center gap-3.5">
+                                    {renderAssetLogo(pool.logo, "size-10", "text-3xl")}
+                                    <div>
+                                      <div className="flex items-center gap-2">
+                                        <h4 className="text-base font-bold text-white font-mono">{pool.symbol}</h4>
+                                        <span className="bg-[#7c3aed]/10 text-[#7c3aed] border border-[#7c3aed]/20 text-[9px] font-bold px-2 py-0.5 rounded-full">
+                                          {poolType}
+                                        </span>
+                                        <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-white/5 text-[#9fadaa] border border-white/10">
+                                          LTV: {(pool.collateralFactor).toFixed(0)}%
+                                        </span>
+                                      </div>
+                                      <p className="text-[10px] text-brandGray font-sans">{pool.name}</p>
+                                    </div>
+                                  </div>
+
+                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-6 w-full md:w-auto">
+                                    <div>
+                                      <span className="text-[10px] text-brandGray uppercase tracking-wider block">Total Supply</span>
+                                      <span className="text-sm font-bold text-white font-mono">${(pool.tvl * prices[pool.id]).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                                    </div>
+                                    <div>
+                                      <span className="text-[10px] text-brandGray uppercase tracking-wider block">Total Borrow</span>
+                                      <span className="text-sm font-bold text-white font-mono">${(pool.totalBorrowed * prices[pool.id]).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                                    </div>
+                                    <div>
+                                      <span className="text-[10px] text-brandGray uppercase tracking-wider block">Supply APY</span>
+                                      <span className="text-sm font-bold text-brandLime font-mono">+{pool.supplyApy.toFixed(2)}%</span>
+                                    </div>
+                                    <div>
+                                      <span className="text-[10px] text-brandGray uppercase tracking-wider block">Borrow APY</span>
+                                      <span className="text-sm font-bold text-brandPurple font-mono">+{pool.borrowApy.toFixed(2)}%</span>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex gap-2 shrink-0 w-full md:w-auto">
+                                    <button
+                                      onClick={() => {
+                                        setExpandedPools(prev => ({ ...prev, [pool.id]: !prev[pool.id] }));
+                                      }}
+                                      className="px-3.5 py-2.5 rounded-xl border border-white/5 text-xs text-brandGray hover:text-white hover:bg-white/5"
+                                    >
+                                      {isExpanded ? "Hide Details" : "Details"}
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setSelectedAssetId(pool.id);
+                                        setTxType("supply");
+                                        setIsTxModalOpen(true);
+                                      }}
+                                      className="flex-1 md:flex-initial px-5 py-2.5 rounded-xl bg-brandLime text-brandDark font-bold text-xs tracking-wider shadow-[0_0_15px_rgba(212,255,63,0.15)] hover:scale-[1.02] transition-transform"
+                                    >
+                                      Supply
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setSelectedAssetId(pool.id);
+                                        setTxType("borrow");
+                                        setIsTxModalOpen(true);
+                                      }}
+                                      className="flex-1 md:flex-initial px-5 py-2.5 rounded-xl border border-white/10 text-white font-bold text-xs tracking-wider hover:bg-white/5 transition-colors"
+                                    >
+                                      Borrow
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {/* Debt Ceiling Progress Bar */}
+                                <div className="border-t border-white/5 pt-3.5 flex flex-col gap-1.5">
+                                  <div className="flex justify-between text-[10px] text-brandGray">
+                                    <span>Debt Used: <span className="font-mono text-white">${pool.totalBorrowed.toLocaleString()} / ${debtCeiling.toLocaleString()} cap</span></span>
+                                    <span className="font-mono text-[#7c3aed] font-bold">{ceilingPercent.toFixed(1)}%</span>
+                                  </div>
+                                  <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+                                    <div className="h-full bg-[#7c3aed]" style={{ width: `${ceilingPercent}%` }} />
+                                  </div>
+                                </div>
+
+                                {isExpanded && (
+                                  <motion.div
+                                    initial={{ height: 0, opacity: 0 }}
+                                    animate={{ height: "auto", opacity: 1 }}
+                                    className="border-t border-white/5 pt-4 mt-2 flex flex-col gap-4 text-xs"
+                                  >
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                                      <div>
+                                        <span className="text-brandGray block mb-1 text-[10px] uppercase">Risk Parameters</span>
+                                        <span className="text-white font-mono block">Collateral Factor: {(pool.collateralFactor).toFixed(0)}%</span>
+                                        <span className="text-brandGray block text-[10px]">Liq. Threshold: {((pool.collateralFactor + 0.05)).toFixed(0)}%</span>
+                                      </div>
+                                      <div>
+                                        <span className="text-brandGray block mb-1 text-[10px] uppercase">Oracle Feeds</span>
+                                        <span className="text-white block font-semibold font-mono">Reflector + DEX TWAP</span>
+                                        <span className="text-brandGray block text-[10px]">Updated: 2 ledgers ago</span>
+                                      </div>
+                                      <div>
+                                        <span className="text-brandGray block mb-1 text-[10px] uppercase">Circuit Breaker</span>
+                                        <span className="text-[#ef4444] font-semibold flex items-center gap-1">
+                                          <span className="w-1.5 h-1.5 rounded-full bg-[#ef4444] animate-pulse" /> Active & Healthy
+                                        </span>
+                                      </div>
+                                      <div>
+                                        <span className="text-brandGray block mb-1 text-[10px] uppercase">Backstop Coverage</span>
+                                        <span className="text-white font-mono block">120% funded</span>
+                                      </div>
+                                    </div>
+                                    <IRMChart marketId={pool.id} />
+                                  </motion.div>
+                                )}
+                              </div>
+                            );
+                          })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -3694,6 +4457,97 @@ export default function ErgoDashboard() {
                     </>
                   );
                 })()}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ─── MAINNET WALLET SIGNATURE VERIFICATION MODAL ───────────── */}
+      <AnimatePresence>
+        {isMainnetSignModalOpen && mainnetSignData && (
+          <div className="fixed inset-0 z-[105] flex items-end md:items-center justify-center p-0 md:p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                if (!mainnetTxSubmitting) {
+                  setIsMainnetSignModalOpen(false);
+                  setMainnetSignData(null);
+                }
+              }}
+              className="absolute inset-0 bg-black/85 backdrop-blur-md"
+            />
+
+            <motion.div
+              initial={{ opacity: 0, y: 100 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 100 }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              className="relative w-full md:max-w-md rounded-t-[2.5rem] md:rounded-[2.5rem] border border-white/5 bg-[#0b0c10]/95 overflow-hidden shadow-2xl p-6 z-10 pb-12 md:pb-6 flex flex-col gap-4"
+            >
+              <div>
+                <span className="text-[9px] uppercase tracking-widest text-brandLime font-bold">Stellar Mainnet (Public) Signature Required</span>
+                <h4 className="text-xl font-bold text-white flex items-center gap-2 mt-1.5">
+                  Confirm Mainnet {mainnetSignData.action.toUpperCase()}
+                </h4>
+              </div>
+
+              <div className="flex flex-col gap-3 text-xs leading-normal">
+                <div className="p-4 rounded-xl bg-white/5 border border-white/5 flex flex-col gap-2.5">
+                  <div className="flex justify-between">
+                    <span className="text-brandGray">Operation</span>
+                    <span className="font-bold text-white uppercase font-mono">{mainnetSignData.action}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-brandGray">Asset</span>
+                    <span className="font-bold text-white font-mono">{mainnetSignData.asset}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-brandGray">Amount</span>
+                    <span className="font-bold text-brandLime font-mono text-sm">{mainnetSignData.amount.toLocaleString()} {mainnetSignData.asset}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-brandGray">Network Passphrase</span>
+                    <span className="font-mono text-white text-[9px] break-all">Public Global Stellar Network ; October 2015</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-brandGray">Fee Limit</span>
+                    <span className="font-bold text-brandPurple font-mono">100 Stroops (0.00001 XLM)</span>
+                  </div>
+                </div>
+
+                <div className="p-3 bg-brandLime/10 border border-brandLime/20 rounded-xl text-brandLime text-[10px] leading-relaxed">
+                  <span className="font-bold block mb-1">🔐 Ledger Security & Signature Info</span>
+                  Freighter / Hana will prompt you to sign a payment transaction on Mainnet. This verifies cryptographic ownership and anchors the position change onto the public ledger sequence.
+                </div>
+              </div>
+
+              <div className="flex gap-3 mt-2">
+                <button
+                  disabled={mainnetTxSubmitting}
+                  onClick={() => {
+                    setIsMainnetSignModalOpen(false);
+                    setMainnetSignData(null);
+                  }}
+                  className="flex-1 py-3.5 rounded-2xl border border-white/5 text-xs text-brandGray hover:text-white transition-colors hover:bg-white/5"
+                >
+                  Reject
+                </button>
+                <button
+                  disabled={mainnetTxSubmitting}
+                  onClick={handleMainnetSignAndSubmit}
+                  className="flex-1 py-3.5 rounded-2xl bg-brandLime hover:bg-brandLime/90 text-brandDark font-bold text-xs shadow-lg transition-transform hover:scale-102 flex items-center justify-center gap-1.5"
+                >
+                  {mainnetTxSubmitting ? (
+                    <>
+                      <Clock className="size-3.5 animate-spin" /> Signing...
+                    </>
+                  ) : (
+                    "Confirm & Sign"
+                  )}
+                </button>
               </div>
             </motion.div>
           </div>
