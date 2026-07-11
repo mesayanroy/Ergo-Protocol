@@ -17,8 +17,9 @@ edition = "2021"
 
 [profile.release]
 opt-level = "z"
-overflow-checks = true
+overflow-checks = false
 lto = true
 codegen-units = 1
 panic = "abort"
+strip = true
 

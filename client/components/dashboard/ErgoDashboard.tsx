@@ -2,12 +2,13 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useStellarWallet } from "../../lib/stellar-wallet";
+import { config, isMainnet } from "../../lib/config";
 import { StellarWalletModal } from "../StellarWalletModal";
 import { useErgoStore } from "../../lib/store";
 import { buildSupplyTx, buildBorrowTx, buildRepayTx, buildWithdrawTx, simulateTransactionImpact, buildBackstopDepositTx, buildBackstopWithdrawTx, buildApproveTx } from "../../lib/transactions";
 import { getWalletBalance } from "../../lib/positions";
 import { getLivePrice } from "../../lib/oracle";
-import { server, NETWORK_PASSPHRASE, simulateContractCall } from "../../lib/rpc";
+import { server, NETWORK_PASSPHRASE, simulateContractCall, setRpcNetwork } from "../../lib/rpc";
 import { TransactionBuilder, Horizon, Operation, Asset, Address, nativeToScVal, scValToNative, Contract, xdr } from "@stellar/stellar-sdk";
 import { TransactionOverview } from "../TransactionOverview";
 import { IRMChart } from "../IRMChart";
@@ -274,6 +275,14 @@ export default function ErgoDashboard() {
   const [txType, setTxType] = useState<"supply" | "withdraw" | "borrow" | "repay">("supply");
   const [selectedAssetId, setSelectedAssetId] = useState<string>("usdc_shared");
   const [txAmount, setTxAmount] = useState<string>("");
+  const [receiptData, setReceiptData] = useState<{
+    type: string;
+    asset: string;
+    amount: number;
+    hash: string;
+    fee: string;
+    network: "mainnet" | "testnet";
+  } | null>(null);
 
   // Compliance states
   const [marketComplianceStates, setMarketComplianceStates] = useState<Record<string, { permissioned: boolean; allowed: boolean; issuer: string }>>({});
@@ -320,6 +329,7 @@ export default function ErgoDashboard() {
         const defaultPos = {
           usdc_shared: { supplied: 0, borrowed: 0 },
           xlm_shared: { supplied: 0, borrowed: 0 },
+          xlm_native_shared: { supplied: 0, borrowed: 0 },
           eurc_shared: { supplied: 0, borrowed: 0 },
           xlm_satellite: { supplied: 0, borrowed: 0 },
           usdc_satellite: { supplied: 0, borrowed: 0 },
@@ -347,13 +357,18 @@ export default function ErgoDashboard() {
     }
   }, [setNetwork]);
 
+  // Update the active RPC network configuration whenever the user toggles the network
+  useEffect(() => {
+    setRpcNetwork(network);
+  }, [network]);
+
   const assetPools = useMemo(() => {
     if (network === "mainnet") {
       const list = markets.length > 0 ? markets : [
         { id: "usdc_shared", symbol: "USDC", name: "USD Coin", logo: "/logo_usdc.png", price: 1.0, poolType: "Shared Core", collateralFactor: 0.85, totalSupplied: 52400000, totalBorrowed: 31200000, borrowRate: 4.25, supplyRate: 2.85, liquidationThreshold: 0.90, emodeCategory: 1, minCollateral: 10, debtCeiling: "Unlimited" },
-        { id: "xlm_shared", symbol: "XLM", name: "Stellar Lumens", logo: "/logo_xlm.png", price: 0.12, poolType: "Shared Core", collateralFactor: 0.75, totalSupplied: 12500000, totalBorrowed: 4200000, borrowRate: 6.80, supplyRate: 3.90, liquidationThreshold: 0.80, emodeCategory: 1, minCollateral: 50, debtCeiling: "Unlimited" },
+        { id: "xlm_native_shared", symbol: "XLM", name: "Stellar Lumens", logo: "/logo_xlm.png", price: 0.12, poolType: "Shared Core", collateralFactor: 0.75, totalSupplied: 12500000, totalBorrowed: 4200000, borrowRate: 6.80, supplyRate: 3.90, liquidationThreshold: 0.80, emodeCategory: 1, minCollateral: 0.1, debtCeiling: "Unlimited" },
         { id: "eurc_shared", symbol: "EURC", name: "Euro Coin", logo: "/logo_eurc.png", price: 1.08, poolType: "Shared Core", collateralFactor: 0.85, totalSupplied: 8500000, totalBorrowed: 3900000, borrowRate: 3.75, supplyRate: 2.10, liquidationThreshold: 0.90, emodeCategory: 1, minCollateral: 10, debtCeiling: "Unlimited" },
-        { id: "xlm_satellite", symbol: "XLM", name: "Stellar Lumens (Satellite)", logo: "/logo_xlm.png", price: 0.12, poolType: "Satellite", collateralFactor: 0.70, totalSupplied: 8200000, totalBorrowed: 3400000, borrowRate: 5.60, supplyRate: 2.80, liquidationThreshold: 0.75, emodeCategory: 0, minCollateral: 50, debtCeiling: "5,000,000" },
+        { id: "xlm_satellite", symbol: "XLM", name: "Stellar Lumens (Satellite)", logo: "/logo_xlm.png", price: 0.12, poolType: "Satellite", collateralFactor: 0.70, totalSupplied: 8200000, totalBorrowed: 3400000, borrowRate: 5.60, supplyRate: 2.80, liquidationThreshold: 0.75, emodeCategory: 0, minCollateral: 0.1, debtCeiling: "5,000,000" },
         { id: "usdc_satellite", symbol: "USDC", name: "USD Coin (Satellite)", logo: "/logo_usdc.png", price: 1.0, poolType: "Satellite", collateralFactor: 0.80, totalSupplied: 14500000, totalBorrowed: 6200000, borrowRate: 4.80, supplyRate: 2.90, liquidationThreshold: 0.85, emodeCategory: 0, minCollateral: 10, debtCeiling: "10,000,000" },
         { id: "eurc_satellite", symbol: "EURC", name: "Euro Coin (Satellite)", logo: "/logo_eurc.png", price: 1.08, poolType: "Satellite", collateralFactor: 0.80, totalSupplied: 6200000, totalBorrowed: 2100000, borrowRate: 4.50, supplyRate: 2.45, liquidationThreshold: 0.85, emodeCategory: 0, minCollateral: 10, debtCeiling: "5,000,000" },
         { id: "ergo_satellite", symbol: "ERGO", name: "Ergo Token", logo: "/logo_ergo.png", price: 0.50, poolType: "Satellite", collateralFactor: 0.65, totalSupplied: 100000, totalBorrowed: 40000, borrowRate: 8.50, supplyRate: 4.10, liquidationThreshold: 0.70, emodeCategory: 0, minCollateral: 20, debtCeiling: "1,000,000" }
@@ -368,7 +383,7 @@ export default function ErgoDashboard() {
         const ltVal = mAny.liquidationThreshold !== undefined ? (mAny.liquidationThreshold > 1 ? mAny.liquidationThreshold : mAny.liquidationThreshold * 100) : (cfVal + 5);
         const debtCeiling = mAny.debtCeiling || "Unlimited";
         const emodeCat = mAny.emodeCategory !== undefined ? mAny.emodeCategory : 0;
-        const minCol = mAny.minCollateral !== undefined ? mAny.minCollateral : (mAny.symbol === "USDC" || mAny.symbol === "EURC" ? 10 : mAny.symbol === "XLM" ? 50 : mAny.symbol === "ERGO" ? 20 : 0.01);
+        const minCol = mAny.minCollateral !== undefined ? mAny.minCollateral : (mAny.symbol === "USDC" || mAny.symbol === "EURC" ? 10 : mAny.symbol === "XLM" ? 0.1 : mAny.symbol === "ERGO" ? 20 : 0.01);
 
         return {
           id: mAny.id,
@@ -396,9 +411,9 @@ export default function ErgoDashboard() {
 
     const list = markets.length > 0 ? markets : [
       { id: "usdc_shared", symbol: "USDC", name: "USD Coin", logo: "/logo_usdc.png", price: 1.0, poolType: "Shared Core", collateralFactor: 0.85, totalSupplied: 52400000, totalBorrowed: 31200000, borrowRate: 4.25, supplyRate: 2.85 },
-      { id: "xlm_shared", symbol: "XLM", name: "Stellar Lumens", logo: "/logo_xlm.png", price: 0.12, poolType: "Shared Core", collateralFactor: 0.75, totalSupplied: 12500000, totalBorrowed: 4200000, borrowRate: 6.80, supplyRate: 3.90 },
+      { id: "xlm_shared", symbol: "XLM", name: "Stellar Lumens", logo: "/logo_xlm.png", price: 0.12, poolType: "Shared Core", collateralFactor: 0.75, totalSupplied: 12500000, totalBorrowed: 4200000, borrowRate: 6.80, supplyRate: 3.90, minCollateral: 0.1 },
       { id: "eurc_shared", symbol: "EURC", name: "Euro Coin", logo: "/logo_eurc.png", price: 1.08, poolType: "Shared Core", collateralFactor: 0.85, totalSupplied: 8500000, totalBorrowed: 3900000, borrowRate: 3.75, supplyRate: 2.10 },
-      { id: "xlm_satellite", symbol: "XLM", name: "Stellar Lumens (Satellite)", logo: "/logo_xlm.png", price: 0.12, poolType: "Satellite", collateralFactor: 0.70, totalSupplied: 8200000, totalBorrowed: 3400000, borrowRate: 5.60, supplyRate: 2.80 },
+      { id: "xlm_satellite", symbol: "XLM", name: "Stellar Lumens (Satellite)", logo: "/logo_xlm.png", price: 0.12, poolType: "Satellite", collateralFactor: 0.70, totalSupplied: 8200000, totalBorrowed: 3400000, borrowRate: 5.60, supplyRate: 2.80, minCollateral: 0.1 },
       { id: "usdc_satellite", symbol: "USDC", name: "USD Coin (Satellite)", logo: "/logo_usdc.png", price: 1.0, poolType: "Satellite", collateralFactor: 0.80, totalSupplied: 14500000, totalBorrowed: 6200000, borrowRate: 4.80, supplyRate: 2.90 },
       { id: "eurc_satellite", symbol: "EURC", name: "Euro Coin (Satellite)", logo: "/logo_eurc.png", price: 1.08, poolType: "Satellite", collateralFactor: 0.80, totalSupplied: 6200000, totalBorrowed: 2100000, borrowRate: 4.50, supplyRate: 2.45 },
       { id: "ergo_satellite", symbol: "ERGO", name: "Ergo Token", logo: "/logo_ergo.png", price: 0.50, poolType: "Satellite", collateralFactor: 0.65, totalSupplied: 100000, totalBorrowed: 40000, borrowRate: 8.50, supplyRate: 4.10 }
@@ -413,7 +428,7 @@ export default function ErgoDashboard() {
       const ltVal = mAny.liquidationThreshold !== undefined ? (mAny.liquidationThreshold > 1 ? mAny.liquidationThreshold : mAny.liquidationThreshold * 100) : (cfVal + 5);
       const debtCeiling = mAny.debtCeiling || "Unlimited";
       const emodeCat = mAny.emodeCategory !== undefined ? mAny.emodeCategory : 0;
-      const minCol = mAny.minCollateral !== undefined ? mAny.minCollateral : (mAny.symbol === "USDC" || mAny.symbol === "EURC" ? 10 : mAny.symbol === "XLM" ? 50 : mAny.symbol === "ERGO" ? 20 : 0.01);
+      const minCol = mAny.minCollateral !== undefined ? mAny.minCollateral : (mAny.symbol === "USDC" || mAny.symbol === "EURC" ? 10 : mAny.symbol === "XLM" ? 0.1 : mAny.symbol === "ERGO" ? 20 : 0.01);
 
       return {
         id: mAny.id,
@@ -440,7 +455,7 @@ export default function ErgoDashboard() {
   }, [network, markets, userPositions, mainnetPositions, walletBalances]);
 
   const fetchComplianceStates = useCallback(async () => {
-    const complianceId = process.env.NEXT_PUBLIC_COMPLIANCE_CONTRACT_ID || '';
+    const complianceId = config.contracts.compliance;
     if (!complianceId) return;
 
     const states: Record<string, { permissioned: boolean; allowed: boolean; issuer: string }> = {};
@@ -517,7 +532,7 @@ export default function ErgoDashboard() {
     }
     setComplianceSubmitting(true);
     try {
-      const complianceId = process.env.NEXT_PUBLIC_COMPLIANCE_CONTRACT_ID || '';
+      const complianceId = config.contracts.compliance;
       const account = await server.getAccount(walletAddress);
       const contract = new Contract(complianceId);
       
@@ -589,8 +604,8 @@ export default function ErgoDashboard() {
     }
     setIsPayingFee(true);
     try {
-      const ergoTokenId = process.env.NEXT_PUBLIC_ERGO_TOKEN_CONTRACT_ID || '';
-      const governanceId = process.env.NEXT_PUBLIC_GOVERNANCE_CONTRACT_ID || '';
+      const ergoTokenId = config.contracts.ergoToken;
+      const governanceId = config.contracts.governance;
       
       const account = await server.getAccount(walletAddress);
       const tokenContract = new Contract(ergoTokenId);
@@ -833,21 +848,45 @@ export default function ErgoDashboard() {
   // Live ERGO Staking Rewards State
   const [liveRewards, setLiveRewards] = useState<number>(0);
 
+  const reloadTransactionsList = useCallback(() => {
+    if (!walletAddress) {
+      setTransactions([]);
+      return;
+    }
+    const keyMainnet = `ergo_mainnet_txs_${walletAddress}`;
+    const keyTestnet = `ergo_txs_${walletAddress}`;
+    
+    const cachedMain = localStorage.getItem(keyMainnet);
+    const cachedTest = localStorage.getItem(keyTestnet);
+    
+    const mainnetTxs = cachedMain ? JSON.parse(cachedMain) : [];
+    let testnetTxs = [];
+    if (cachedTest) {
+      testnetTxs = JSON.parse(cachedTest);
+    } else {
+      testnetTxs = [
+        { id: "tx-1", type: "SUPPLY", asset: "XLM", amount: 8000, hash: "c82b...f01e", date: "2026-07-01", time: "05:12", network: "testnet" },
+        { id: "tx-2", type: "BORROW", asset: "XLM", amount: 2500, hash: "4fa3...9c18", date: "2026-07-01", time: "05:10", network: "testnet" }
+      ];
+      localStorage.setItem(keyTestnet, JSON.stringify(testnetTxs));
+    }
+
+    const mainnetTxsWithFlag = mainnetTxs.map((tx: any) => ({ ...tx, network: "mainnet" }));
+    const testnetTxsWithFlag = testnetTxs.map((tx: any) => ({ ...tx, network: "testnet" }));
+
+    const combined = [...mainnetTxsWithFlag, ...testnetTxsWithFlag].sort((a, b) => {
+      const dateTimeA = `${a.date}T${a.time || "00:00"}`;
+      const dateTimeB = `${b.date}T${b.time || "00:00"}`;
+      return dateTimeB.localeCompare(dateTimeA);
+    });
+
+    setTransactions(combined);
+  }, [walletAddress]);
+
   // Synchronize localStorage keys for connected walletAddress
   useEffect(() => {
     if (walletAddress) {
-      const keyTx = network === "mainnet" ? `ergo_mainnet_txs_${walletAddress}` : `ergo_txs_${walletAddress}`;
-      const cachedTxs = localStorage.getItem(keyTx);
-      if (cachedTxs) {
-        setTransactions(JSON.parse(cachedTxs));
-      } else {
-        const defaultTxs = network === "mainnet" ? [] : [
-          { id: "tx-1", type: "SUPPLY", asset: "XLM", amount: 8000, hash: "c82b...f01e", date: "2026-07-01", time: "05:12" },
-          { id: "tx-2", type: "BORROW", asset: "XLM", amount: 2500, hash: "4fa3...9c18", date: "2026-07-01", time: "05:10" }
-        ];
-        setTransactions(defaultTxs);
-        localStorage.setItem(keyTx, JSON.stringify(defaultTxs));
-      }
+      reloadTransactionsList();
 
       const keyDel = `ergo_dels_${walletAddress}`;
       const cachedDels = localStorage.getItem(keyDel);
@@ -864,7 +903,7 @@ export default function ErgoDashboard() {
       setTransactions([]);
       setActiveDelegations([]);
     }
-  }, [walletAddress, network]);
+  }, [walletAddress, network, reloadTransactionsList]);
 
   const addTransactionHistoryEntry = (type: string, asset: string, amount: number | string, hash: string) => {
     const cleanAmt = typeof amount === "number" ? amount : parseFloat(amount) || 0;
@@ -876,15 +915,16 @@ export default function ErgoDashboard() {
       hash: hash.length > 12 ? hash.slice(0, 6) + "..." + hash.slice(-6) : hash,
       date: new Date().toISOString().split("T")[0],
       time: new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit" }),
+      network: network
     };
-    setTransactions(prev => {
-      const next = [newTx, ...prev];
-      if (walletAddress) {
-        const key = network === "mainnet" ? `ergo_mainnet_txs_${walletAddress}` : `ergo_txs_${walletAddress}`;
-        localStorage.setItem(key, JSON.stringify(next));
-      }
-      return next;
-    });
+    
+    if (walletAddress) {
+      const storageKey = network === "mainnet" ? `ergo_mainnet_txs_${walletAddress}` : `ergo_txs_${walletAddress}`;
+      const cached = localStorage.getItem(storageKey);
+      const list = cached ? JSON.parse(cached) : [];
+      localStorage.setItem(storageKey, JSON.stringify([newTx, ...list]));
+      reloadTransactionsList();
+    }
   };
 
   // Ticking reward updates inside backstop contributions
@@ -924,6 +964,7 @@ export default function ErgoDashboard() {
       weth: 3450.0,
       ergo: 0.50,
       xlm_shared: 0.12,
+      xlm_native_shared: 0.12,
       usdc_shared: 1.00,
       eurc_shared: 1.08,
       wbtc_satellite: 64200.0,
@@ -1088,8 +1129,8 @@ export default function ErgoDashboard() {
     setIsBackstopTxSubmitting(true);
     try {
       const rawAmount = BigInt(Math.floor(amount * 10_000_000));
-      const usdcContractId = process.env.NEXT_PUBLIC_USDC_CONTRACT_ID || "CB4A545ENTCQZUV33M2QT6RKLQ5K5ZRP34BR7NSJJLSS76NHH273QVA5";
-      const backstopContractId = process.env.NEXT_PUBLIC_BACKSTOP_CONTRACT_ID || "CADGFYWJHZB5JYDC5CIL3B4NHZ7PHFCRVPBZYERPZ7MENOOA2RQWH6WX";
+      const usdcContractId = (config.assets as any).USDC || "";
+      const backstopContractId = config.contracts.backstop || "";
       
       // Step 1: Approve Backstop Contract to spend USDC
       const approveXdr = await buildApproveTx(walletAddress, usdcContractId, rawAmount, backstopContractId);
@@ -1123,9 +1164,10 @@ export default function ErgoDashboard() {
       }
       
       let status: any = sendRes.status;
+      let txResult;
       for (let i = 0; i < 15; i++) {
         await new Promise(r => setTimeout(r, 2000));
-        const txResult = await server.getTransaction(sendRes.hash);
+        txResult = await server.getTransaction(sendRes.hash);
         status = txResult.status;
         if (status === "SUCCESS" || status === "FAILED") break;
       }
@@ -1134,7 +1176,20 @@ export default function ErgoDashboard() {
         throw new Error("Transaction execution failed or timed out.");
       }
 
-      alert("USDC deposited successfully into Backstop!");
+      const feeStroops = (txResult as any)?.feeCharged?.toString() 
+        || (txResult as any)?.feeCharged?._value?.toString()
+        || "";
+      const feeXlm = feeStroops ? (parseInt(feeStroops) / 10_000_000).toFixed(7).replace(/\.?0+$/, "") : "0.0001";
+
+      setReceiptData({
+        type: "backstop_deposit",
+        asset: "USDC",
+        amount: amount,
+        hash: sendRes.hash,
+        fee: feeXlm,
+        network: network
+      });
+
       fetchBackstopData();
       addTransactionHistoryEntry("backstop_deposit", "USDC", amount, sendRes.hash);
     } catch (err: any) {
@@ -1177,9 +1232,10 @@ export default function ErgoDashboard() {
       }
       
       let status: any = sendRes.status;
+      let txResult;
       for (let i = 0; i < 15; i++) {
         await new Promise(r => setTimeout(r, 2000));
-        const txResult = await server.getTransaction(sendRes.hash);
+        txResult = await server.getTransaction(sendRes.hash);
         status = txResult.status;
         if (status === "SUCCESS" || status === "FAILED") break;
       }
@@ -1188,7 +1244,20 @@ export default function ErgoDashboard() {
         throw new Error("Transaction execution failed or timed out.");
       }
 
-      alert("Withdrawal cooldown queue request submitted successfully!");
+      const feeStroops = (txResult as any)?.feeCharged?.toString() 
+        || (txResult as any)?.feeCharged?._value?.toString()
+        || "";
+      const feeXlm = feeStroops ? (parseInt(feeStroops) / 10_000_000).toFixed(7).replace(/\.?0+$/, "") : "0.0001";
+
+      setReceiptData({
+        type: "backstop_withdraw",
+        asset: "USDC",
+        amount: amount,
+        hash: sendRes.hash,
+        fee: feeXlm,
+        network: network
+      });
+
       fetchBackstopData();
       addTransactionHistoryEntry("backstop_withdraw", "USDC", amount, sendRes.hash);
     } catch (err: any) {
@@ -1218,16 +1287,16 @@ export default function ErgoDashboard() {
       const rawAmount = BigInt(Math.floor(amount * 10_000_000));
       const assetContractId = 
         selectedAssetId.toLowerCase().includes("usdc")
-          ? (process.env.NEXT_PUBLIC_USDC_CONTRACT_ID || "CB4A545ENTCQZUV33M2QT6RKLQ5K5ZRP34BR7NSJJLSS76NHH273QVA5")
+          ? ((config.assets as any).USDC || "")
           : selectedAssetId.toLowerCase().includes("xlm")
-          ? (process.env.NEXT_PUBLIC_XLM_SAC || "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC")
+          ? ((config.assets as any).XLM || "")
           : selectedAssetId.toLowerCase().includes("eurc")
-          ? (process.env.NEXT_PUBLIC_EURC_CONTRACT_ID || "CBGN37EGC2VTOTROLR72BGCXEBZF2JGVHPPPN36IFKLVXBQLY3SXST6E")
+          ? ((config.assets as any).EURC || "")
           : selectedAssetId.toLowerCase().includes("wbtc")
-          ? (process.env.NEXT_PUBLIC_WBTC_CONTRACT_ID || "CDJHXKNMRY5UOX4JGAGEPBGR3DKYOBPXPDWXTLSRKPT2FN3SGPS762YE")
+          ? ((config.assets as any).wBTC || "")
           : selectedAssetId.toLowerCase().includes("weth")
-          ? (process.env.NEXT_PUBLIC_WETH_CONTRACT_ID || "CAUJL5GHJGD3XZTATZZJK5PTKVXUBQEZ2LQFQB7DQTGUN62BFCOR7KXK")
-          : (process.env.NEXT_PUBLIC_ERGO_TOKEN_CONTRACT_ID || "CCR5A6TLOSX3JTEOHRSCKC3WWUOB4ZHOCEUXKI3NE6MU3XYDYSZVCX57");
+          ? ((config.assets as any).wETH || "")
+          : ((config.assets as any).ERGO || "");
 
       // Check trustline for withdraw/borrow operations
       if (txType === "withdraw" || txType === "borrow") {
@@ -1333,6 +1402,20 @@ export default function ErgoDashboard() {
       // Add transaction history entry
       addTransactionHistoryEntry(txType, activePool.symbol, amount, sendRes.hash);
 
+      const feeStroops = (txResult as any)?.feeCharged?.toString() 
+        || (txResult as any)?.feeCharged?._value?.toString()
+        || "";
+      const feeXlm = feeStroops ? (parseInt(feeStroops) / 10_000_000).toFixed(7).replace(/\.?0+$/, "") : "0.0001";
+
+      setReceiptData({
+        type: txType,
+        asset: activePool.symbol,
+        amount: amount,
+        hash: sendRes.hash,
+        fee: feeXlm,
+        network: network
+      });
+
       // Add alert notification
       const notif = {
         id: Date.now(),
@@ -1429,7 +1512,7 @@ export default function ErgoDashboard() {
       
       const nextTxs = [newTx, ...mainnetTxs];
       localStorage.setItem(keyTx, JSON.stringify(nextTxs));
-      setTransactions(nextTxs);
+      reloadTransactionsList();
       
       const notif = {
         id: Date.now(),
@@ -1441,7 +1524,15 @@ export default function ErgoDashboard() {
       };
       setNotifications(prev => [notif, ...prev]);
       
-      alert(`Success! Transaction successfully signed and verified on Stellar Mainnet.`);
+      setReceiptData({
+        type: mainnetSignData.action,
+        asset: mainnetSignData.asset,
+        amount: mainnetSignData.amount,
+        hash: newTx.hash,
+        fee: "0.00001",
+        network: "mainnet"
+      });
+      
       setIsMainnetSignModalOpen(false);
       setMainnetSignData(null);
     } catch (err: any) {
@@ -3168,18 +3259,27 @@ export default function ErgoDashboard() {
                         <tbody>
                           {transactions.map(tx => (
                             <tr key={tx.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
-                              <td className="py-3">
+                              <td className="py-3 flex items-center gap-1.5">
                                 <span className={`inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded ${
                                   tx.type === "SUPPLY" || tx.type === "REPAY" ? "bg-brandLime/10 text-brandLime" : "bg-brandPurple/10 text-brandPurple"
                                 }`}>
                                   {tx.type}
+                                </span>
+                                <span className={`inline-flex items-center text-[8px] font-mono font-bold px-1.5 py-0.5 rounded ${
+                                  tx.network === "mainnet" ? "bg-brandLime/10 text-brandLime border border-brandLime/25" : "bg-white/5 text-brandGray border border-white/10"
+                                }`}>
+                                  {tx.network === "mainnet" ? "M" : "T"}
                                 </span>
                               </td>
                               <td className="py-3 font-bold font-mono text-white">{tx.asset}</td>
                               <td className="py-3 text-right font-mono text-white">{tx.amount.toLocaleString()}</td>
                               <td className="py-3 text-right font-mono text-brandGray/70">{tx.hash}</td>
                               <td className="py-3 text-right text-brandLime hover:underline">
-                                <a href={`https://stellar.expert/explorer/testnet/tx/${tx.hash}`} target="_blank" rel="noopener noreferrer">
+                                <a 
+                                  href={tx.network === "mainnet" ? `https://stellar.expert/explorer/public/tx/${tx.hash}` : `https://stellar.expert/explorer/testnet/tx/${tx.hash}`} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                >
                                   View
                                 </a>
                               </td>
@@ -4901,6 +5001,96 @@ export default function ErgoDashboard() {
           );
         })}
       </div>
+
+      {/* ─── TRANSACTION SUCCESS RECEIPT MODAL ─────────────────────────────────── */}
+      <AnimatePresence>
+        {receiptData && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="relative w-full max-w-md rounded-[2.5rem] border border-brandLime/25 bg-[#121316]/90 backdrop-blur-xl p-7 shadow-2xl flex flex-col gap-6"
+            >
+              <div className="flex flex-col items-center justify-center text-center gap-3">
+                <div className="w-16 h-16 rounded-full bg-brandLime/10 border border-brandLime/30 flex items-center justify-center text-brandLime shadow-[0_0_25px_rgba(212,255,63,0.25)]">
+                  <Check className="size-8" />
+                </div>
+                <h3 className="text-xl font-bold text-white mt-2">Transaction Receipt</h3>
+                <p className="text-xs text-brandGray">Your transaction was successfully processed on Stellar.</p>
+              </div>
+
+              <div className="bg-black/30 rounded-2xl border border-white/5 p-5 flex flex-col gap-4">
+                <div className="flex justify-between items-center text-xs border-b border-white/5 pb-2.5">
+                  <span className="text-brandGray">Status</span>
+                  <span className="font-bold text-brandLime flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-brandLime animate-pulse" /> Verified On-Chain
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-xs border-b border-white/5 pb-2.5">
+                  <span className="text-brandGray">Action</span>
+                  <span className="font-bold text-white uppercase tracking-wider">{receiptData.type}</span>
+                </div>
+                <div className="flex justify-between items-center text-xs border-b border-white/5 pb-2.5">
+                  <span className="text-brandGray">Asset</span>
+                  <span className="font-bold text-white font-mono">{receiptData.asset}</span>
+                </div>
+                <div className="flex justify-between items-center text-xs border-b border-white/5 pb-2.5">
+                  <span className="text-brandGray">Amount</span>
+                  <span className="font-bold text-white font-mono">{receiptData.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                </div>
+                <div className="flex justify-between items-center text-xs border-b border-white/5 pb-2.5">
+                  <span className="text-brandGray">Network</span>
+                  <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded capitalize ${
+                    receiptData.network === "mainnet" ? "bg-brandLime/10 text-brandLime border border-brandLime/25" : "bg-white/5 text-brandGray border border-white/10"
+                  }`}>
+                    {receiptData.network}
+                  </span>
+                </div>
+                {receiptData.fee && (
+                  <div className="flex justify-between items-center text-xs border-b border-white/5 pb-2.5">
+                    <span className="text-brandGray">Transaction Fee</span>
+                    <span className="font-bold text-brandLime font-mono">{receiptData.fee} XLM</span>
+                  </div>
+                )}
+                <div className="flex flex-col gap-2 pt-1">
+                  <span className="text-xs text-brandGray">Transaction Hash</span>
+                  <div className="flex items-center justify-between gap-2 bg-white/5 border border-white/5 p-2.5 rounded-xl">
+                    <span className="text-[10px] text-white/80 font-mono truncate select-all">{receiptData.hash}</span>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(receiptData.hash);
+                        alert("Hash copied to clipboard!");
+                      }}
+                      className="text-brandGray hover:text-white transition-colors"
+                      title="Copy transaction hash"
+                    >
+                      <Copy className="size-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-3 mt-2">
+                <a
+                  href={receiptData.network === "mainnet" ? `https://stellar.expert/explorer/public/tx/${receiptData.hash}` : `https://stellar.expert/explorer/testnet/tx/${receiptData.hash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 py-3.5 rounded-xl border border-white/10 hover:bg-white/5 text-xs font-bold text-center text-white flex items-center justify-center gap-1.5 transition-all"
+                >
+                  <ExternalLink className="size-4" /> Explorer
+                </a>
+                <button
+                  onClick={() => setReceiptData(null)}
+                  className="flex-1 py-3.5 rounded-xl bg-brandLime hover:bg-brandLime/90 text-brandDark font-bold text-xs tracking-wide transition-all shadow-[0_0_15px_rgba(212,255,63,0.15)]"
+                >
+                  Dismiss Receipt
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
     </div>
   );

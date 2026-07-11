@@ -14,11 +14,12 @@ for wasm_path in wasm_files:
     
     print(f"Optimizing {filename} (Original: {old_size / 1024:.2f} KB)...")
     
-    # Run wasm-opt via pnpm in the client directory
     cmd = [
         "pnpm", "exec", "wasm-opt",
         "-Oz",
         "--strip-debug",
+        "--strip-producers",
+        "--converge",
         wasm_path,
         "-o", wasm_path
     ]

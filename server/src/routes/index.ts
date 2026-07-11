@@ -10,6 +10,7 @@ import protocolRouter from './protocol.js';
 import authRouter from './auth.js';
 import complianceRouter from './compliance.js';
 import faucetRouter from './faucet.js';
+import adminRouter from './admin.js';
 
 const router = Router();
 
@@ -24,5 +25,6 @@ router.use('/protocol', protocolRouter);
 router.use('/auth', authRouter);
 router.use('/compliance', complianceRouter);
 router.use('/faucet', faucetRouter);
+router.use('/admin', adminRouter);
 
 export default router;

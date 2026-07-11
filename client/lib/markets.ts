@@ -1,5 +1,6 @@
 import { simulateContractCall } from './rpc';
 import { scValToNative, xdr } from '@stellar/stellar-sdk';
+import { config } from './config';
 
 export interface Market {
   id: string;
@@ -50,7 +51,7 @@ const MARKET_METADATA: Record<string, { symbol: string; name: string; logo: stri
 };
 
 export async function getAllMarkets(): Promise<Market[]> {
-  const corePoolId = process.env.NEXT_PUBLIC_CORE_POOL_CONTRACT_ID || '';
+  const corePoolId = config.contracts.corePool;
   if (!corePoolId) {
     return getFallbackMarkets();
   }
@@ -64,7 +65,7 @@ export async function getAllMarkets(): Promise<Market[]> {
         const meta = MARKET_METADATA[id.toLowerCase()] || { symbol: id.toUpperCase(), name: id, logo: '/logo_usdc.png', priceFallback: 1.0 };
         
         let price = meta.priceFallback;
-        const oracleId = process.env.NEXT_PUBLIC_ORACLE_AGGREGATOR_CONTRACT_ID || '';
+        const oracleId = config.contracts.oracleAggregator;
         if (oracleId) {
           try {
             const symVal = xdr.ScVal.scvSymbol(meta.symbol);

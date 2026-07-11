@@ -3,8 +3,12 @@
   "private": true,
   "packageManager": "pnpm@9.15.4",
   "scripts": {
-    "dev": "pnpm --dir client dev",
-    "build": "pnpm --dir client build",
+    "dev": "concurrently \"pnpm --dir server dev\" \"pnpm --dir client dev\"",
+    "build": "pnpm --dir server build && pnpm --dir client build",
+    "start": "concurrently \"pnpm --dir server start\" \"pnpm --dir client start\"",
     "install:all": "pnpm install"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.3"
   }
 }

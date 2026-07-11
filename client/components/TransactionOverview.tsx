@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Address, nativeToScVal, scValToNative } from '@stellar/stellar-sdk';
 import { simulateContractCall } from '../lib/rpc';
+import { config } from '../lib/config';
 
 export interface SimulationResult {
   hfBefore: number;
@@ -14,7 +15,7 @@ export interface SimulationResult {
   gasEstimate: number;
 }
 
-interface TransactionOverviewProps {
+export interface TransactionOverviewProps {
   action: 'supply' | 'borrow' | 'withdraw' | 'repay';
   marketId: string;
   amount: bigint;
@@ -41,7 +42,7 @@ export function TransactionOverview({
     const runSim = async () => {
       setLoading(true);
       try {
-        const corePoolId = process.env.NEXT_PUBLIC_CORE_POOL_CONTRACT_ID || 'CCTXZNKEDNDA3ZGL6TQV2TSGNJ6HLUQCWXGIA6NOFKT53VESNDIYJRQH';
+        const corePoolId = config.contracts.corePool;
         const method = `simulate_${action}`;
         const userAddrVal = Address.fromString(userAddress).toScVal();
         const marketVal = nativeToScVal(marketId, { type: 'symbol' });

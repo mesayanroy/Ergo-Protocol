@@ -1,5 +1,6 @@
 import { simulateContractCall } from './rpc';
 import { scValToNative, Address } from '@stellar/stellar-sdk';
+import { config } from './config';
 
 export interface UserPosition {
   marketId: string;
@@ -22,7 +23,7 @@ const MARKET_METADATA: Record<string, { symbol: string }> = {
 };
 
 export async function getUserPositions(userAddress: string): Promise<UserPosition[]> {
-  const corePoolId = process.env.NEXT_PUBLIC_CORE_POOL_CONTRACT_ID || '';
+  const corePoolId = config.contracts.corePool;
   if (!corePoolId || !userAddress) {
     return [];
   }

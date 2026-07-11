@@ -2,6 +2,8 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { Horizon, Networks, TransactionBuilder, Operation, Asset } from "@stellar/stellar-sdk";
 
+import { isMainnet } from "./config";
+
 export interface WalletInfo {
   id: string;
   name: string;
@@ -32,7 +34,7 @@ export const StellarWalletProvider = ({ children }: { children: ReactNode }) => 
   const [walletProvider, setWalletProvider] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState<boolean>(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
-  const [network, setNetwork] = useState<"testnet" | "mainnet">("testnet");
+  const [network, setNetwork] = useState<"testnet" | "mainnet">(isMainnet ? "mainnet" : "testnet");
 
   // Auto reconnect on page refresh
   useEffect(() => {
@@ -205,7 +207,13 @@ export const StellarWalletProvider = ({ children }: { children: ReactNode }) => 
     let signedXdr: any;
     if (providerId === "freighter") {
       const freighter = await import("@stellar/freighter-api");
-      const res = await freighter.signTransaction(xdr, { networkPassphrase: passphrase } as any) as any;
+      const res = await freighter.signTransaction(xdr) as any;
+      if (res && res.error) {
+        throw new Error(
+          `Freighter Error: ${res.error.message || JSON.stringify(res.error)}. ` +
+          `If you see a network mismatch warning in Freighter, please make sure your active wallet network matches the transaction network passphrase.`
+        );
+      }
       signedXdr = res;
     } else if (providerId === "albedo") {
       const albedo = (await import("@albedo-link/intent")).default;

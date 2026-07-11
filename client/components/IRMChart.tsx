@@ -13,14 +13,22 @@ interface IRMChartData {
   baseApr: number;
 }
 
+import { config } from '../lib/config';
+
 export function IRMChart({ marketId }: IRMChartProps) {
-  const [irmData, setIrmData] = useState<IRMChartData[]>([]);
+  const [irmData, setIrmData] = useState<IRMChartData[]>(
+    Array.from({ length: 101 }, (_, i) => ({
+      utilization: i,
+      currentApr: 2 + (i / 100) * 10,
+      baseApr: 2,
+    }))
+  );
   const [currentUtil, setCurrentUtil] = useState(0);
 
   useEffect(() => {
     const fetchIrm = async () => {
       try {
-        const corePoolId = process.env.NEXT_PUBLIC_CORE_POOL_CONTRACT_ID || 'CCTXZNKEDNDA3ZGL6TQV2TSGNJ6HLUQCWXGIA6NOFKT53VESNDIYJRQH';
+        const corePoolId = config.contracts.corePool;
         const marketVal = nativeToScVal(marketId, { type: 'symbol' });
 
         const [paramsSim, utilSim] = await Promise.all([

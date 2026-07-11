@@ -110,3 +110,52 @@ CREATE INDEX IF NOT EXISTS idx_auctions_active ON auctions(active);
 CREATE INDEX IF NOT EXISTS idx_proposals_status ON proposals(status);
 CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_address);
 CREATE INDEX IF NOT EXISTS idx_price_snapshots_asset ON price_snapshots(asset_code, recorded_at DESC);
+
+-- Indexer Checkpoints: logs the last processed ledger sequence
+CREATE TABLE IF NOT EXISTS checkpoints (
+  checkpoint_name VARCHAR(64) PRIMARY KEY,
+  last_processed_ledger INT NOT NULL,
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Contract Events Log: stores parsed events from Soroban RPC
+CREATE TABLE IF NOT EXISTS events (
+  id SERIAL PRIMARY KEY,
+  contract_id VARCHAR(56) NOT NULL,
+  event_name VARCHAR(64) NOT NULL,
+  topics TEXT[],
+  data TEXT,
+  ledger_seq INT NOT NULL,
+  tx_hash VARCHAR(64) NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Markets Metrics: aggregates total supplies/borrows and pool configurations
+CREATE TABLE IF NOT EXISTS markets (
+  market_id VARCHAR(64) PRIMARY KEY,
+  pool_type INT NOT NULL, -- 0=SharedCore, 1=Satellite, 2=Permissioned
+  asset_address VARCHAR(56) NOT NULL,
+  total_supplied DECIMAL(24,8) DEFAULT 0,
+  total_borrowed DECIMAL(24,8) DEFAULT 0,
+  reserve_balance DECIMAL(24,8) DEFAULT 0,
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Users Registry: tracks active users
+CREATE TABLE IF NOT EXISTS users (
+  user_address VARCHAR(56) PRIMARY KEY,
+  active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Daily metrics: aggregates protocol stats for the dashboard
+CREATE TABLE IF NOT EXISTS daily_metrics (
+  metric_date DATE PRIMARY KEY,
+  tvl DECIMAL(24,8) DEFAULT 0,
+  utilization_rate DECIMAL(6,2) DEFAULT 0,
+  active_users INT DEFAULT 0,
+  transaction_count INT DEFAULT 0,
+  treasury_balance DECIMAL(24,8) DEFAULT 0,
+  created_at TIMESTAMP DEFAULT NOW()
+);

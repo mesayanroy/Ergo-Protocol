@@ -1,6 +1,8 @@
 import { simulateContractCall } from './rpc';
 import { scValToNative, xdr } from '@stellar/stellar-sdk';
 
+import { config } from './config';
+
 export interface OraclePrice {
   median: number;
   reflectorPrice: number;
@@ -10,7 +12,7 @@ export interface OraclePrice {
 }
 
 export async function getLivePrice(asset: string): Promise<OraclePrice> {
-  const oracleId = process.env.NEXT_PUBLIC_ORACLE_AGGREGATOR_CONTRACT_ID || '';
+  const oracleId = config.contracts.oracleAggregator;
   if (!oracleId) {
     return getFallbackPrice(asset);
   }

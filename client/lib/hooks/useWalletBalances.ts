@@ -1,19 +1,19 @@
 import { useEffect, useState } from 'react';
 import { Address, scValToNative } from '@stellar/stellar-sdk';
 import { simulateContractCall } from '../rpc';
+import { config } from '../config';
 
 export function useWalletBalances(userAddress: string | null) {
   const [balances, setBalances] = useState<Record<string, bigint>>({});
   const [loading, setLoading] = useState(false);
 
-  const ASSETS: Record<string, string> = {
-    xlm: process.env.NEXT_PUBLIC_XLM_SAC || 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC',
-    usdc: process.env.NEXT_PUBLIC_USDC_CONTRACT_ID || 'CB4A545ENTCQZUV33M2QT6RKLQ5K5ZRP34BR7NSJJLSS76NHH273QVA5',
-    eurc: process.env.NEXT_PUBLIC_EURC_CONTRACT_ID || 'CBGN37EGC2VTOTROLR72BGCXEBZF2JGVHPPPN36IFKLVXBQLY3SXST6E',
-    wbtc: process.env.NEXT_PUBLIC_WBTC_CONTRACT_ID || 'CDJHXKNMRY5UOX4JGAGEPBGR3DKYOBPXPDWXTLSRKPT2FN3SGPS762YE',
-    weth: process.env.NEXT_PUBLIC_WETH_CONTRACT_ID || 'CAUJL5GHJGD3XZTATZZJK5PTKVXUBQEZ2LQFQB7DQTGUN62BFCOR7KXK',
-    ergo: process.env.NEXT_PUBLIC_ERGO_TOKEN_CONTRACT_ID || 'CCR5A6TLOSX3JTEOHRSCKC3WWUOB4ZHOCEUXKI3NE6MU3XYDYSZVCX57',
-  };
+  const ASSETS: Record<string, string> = {};
+  if ((config.assets as any).XLM) ASSETS.xlm = (config.assets as any).XLM;
+  if ((config.assets as any).USDC) ASSETS.usdc = (config.assets as any).USDC;
+  if ((config.assets as any).EURC) ASSETS.eurc = (config.assets as any).EURC;
+  if ((config.assets as any).ERGO) ASSETS.ergo = (config.assets as any).ERGO;
+  if ((config.assets as any).wBTC) ASSETS.wbtc = (config.assets as any).wBTC;
+  if ((config.assets as any).wETH) ASSETS.weth = (config.assets as any).wETH;
 
   const fetchBalances = async () => {
     if (!userAddress) {

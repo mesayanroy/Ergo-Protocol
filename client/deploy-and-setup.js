@@ -151,7 +151,11 @@ async function deployContract(wasmPath, name) {
   try {
     console.log(`\nOptimizing ${name} with wasm-opt...`);
     execSync(`npx wasm-opt --mvp-features "${wasmPath}" -o "${tempWasmPath}"`);
-    wasmPath = tempWasmPath;
+    if (fs.existsSync(tempWasmPath)) {
+      wasmPath = tempWasmPath;
+    } else {
+      console.warn(`Warning: wasm-opt did not produce output for ${name}, using unoptimized version.`);
+    }
   } catch (err) {
     console.warn(`Warning: wasm-opt failed for ${name}, using unoptimized version:`, err.message);
   }
@@ -554,45 +558,53 @@ async function main() {
 
   console.log('\n--- WRITING DEPLOYED ADDRESSES TO ENV ---');
 
-  const envContent = `# ── Stellar Testnet Contract Configuration ──────────────────────────
-NEXT_PUBLIC_CORE_POOL_CONTRACT_ID='${corePool}'
-NEXT_PUBLIC_ORACLE_AGGREGATOR_CONTRACT_ID='${oracle}'
-NEXT_PUBLIC_BACKSTOP_CONTRACT_ID='${backstop}'
-NEXT_PUBLIC_LIQUIDATION_ENGINE_CONTRACT_ID='${liquidationEngine}'
-NEXT_PUBLIC_GOVERNANCE_CONTRACT_ID='${governance}'
-NEXT_PUBLIC_COMPLIANCE_CONTRACT_ID='${compliance}'
+  const testnetEnv = `
+# ── Stellar Testnet Contract Configuration (Automated) ──────────────
+NEXT_PUBLIC_TESTNET_CORE_POOL_CONTRACT_ID='${corePool}'
+NEXT_PUBLIC_TESTNET_ORACLE_AGGREGATOR_CONTRACT_ID='${oracle}'
+NEXT_PUBLIC_TESTNET_BACKSTOP_CONTRACT_ID='${backstop}'
+NEXT_PUBLIC_TESTNET_LIQUIDATION_ENGINE_CONTRACT_ID='${liquidationEngine}'
+NEXT_PUBLIC_TESTNET_GOVERNANCE_CONTRACT_ID='${governance}'
+NEXT_PUBLIC_TESTNET_COMPLIANCE_CONTRACT_ID='${compliance}'
 
-# ── Stellar Asset Contracts (SACs) / Tokens ───────────────────────
-NEXT_PUBLIC_XLM_SAC='${xlmSac}'
-NEXT_PUBLIC_USDC_CONTRACT_ID='${usdc}'
-NEXT_PUBLIC_EURC_CONTRACT_ID='${eurc}'
-NEXT_PUBLIC_WBTC_CONTRACT_ID='${wbtc}'
-NEXT_PUBLIC_WETH_CONTRACT_ID='${weth}'
-NEXT_PUBLIC_ERGO_TOKEN_CONTRACT_ID='${ergo}'
+# ── Stellar Testnet Asset Contracts (SACs) / Tokens (Automated) ─────
+NEXT_PUBLIC_TESTNET_XLM_SAC='${xlmSac}'
+NEXT_PUBLIC_TESTNET_USDC_CONTRACT_ID='${usdc}'
+NEXT_PUBLIC_TESTNET_EURC_CONTRACT_ID='${eurc}'
+NEXT_PUBLIC_TESTNET_WBTC_CONTRACT_ID='${wbtc}'
+NEXT_PUBLIC_TESTNET_WETH_CONTRACT_ID='${weth}'
+NEXT_PUBLIC_TESTNET_ERGO_TOKEN_CONTRACT_ID='${ergo}'
 
-# ── Stellar Classic Asset Issuers ─────────────────────────────────
-NEXT_PUBLIC_USDC_ISSUER='${usdcIssuer.publicKey()}'
-NEXT_PUBLIC_EURC_ISSUER='${eurcIssuer.publicKey()}'
-NEXT_PUBLIC_WBTC_ISSUER='${wbtcIssuer.publicKey()}'
-NEXT_PUBLIC_WETH_ISSUER='${wethIssuer.publicKey()}'
-NEXT_PUBLIC_ERGO_ISSUER='${ergoIssuer.publicKey()}'
-
-NEXT_PUBLIC_SOROBAN_RPC_URL='https://soroban-testnet.stellar.org'
-NEXT_PUBLIC_NETWORK='testnet'
+# ── Stellar Testnet Classic Asset Issuers (Automated) ───────────────
+NEXT_PUBLIC_TESTNET_USDC_ISSUER='${usdcIssuer.publicKey()}'
+NEXT_PUBLIC_TESTNET_EURC_ISSUER='${eurcIssuer.publicKey()}'
+NEXT_PUBLIC_TESTNET_WBTC_ISSUER='${wbtcIssuer.publicKey()}'
+NEXT_PUBLIC_TESTNET_WETH_ISSUER='${wethIssuer.publicKey()}'
+NEXT_PUBLIC_TESTNET_ERGO_ISSUER='${ergoIssuer.publicKey()}'
 `;
 
-  fs.writeFileSync('.env.local', envContent);
-  fs.writeFileSync('../.env.local', envContent);
+  const appendToEnv = (filePath) => {
+    let content = '';
+    if (fs.existsSync(filePath)) {
+      content = fs.readFileSync(filePath, 'utf8');
+      // Remove any previously appended automated testnet sections to prevent duplicates
+      content = content.split('# ── Stellar Testnet Contract Configuration (Automated)')[0].trim();
+    }
+    fs.writeFileSync(filePath, content + '\n' + testnetEnv.trim() + '\n');
+  };
+
+  appendToEnv('.env.local');
+  appendToEnv('../.env.local');
 
   const serverEnvPath = '../server/.env';
   if (fs.existsSync(serverEnvPath)) {
     let serverEnv = fs.readFileSync(serverEnvPath, 'utf8');
-    serverEnv = serverEnv.replace(/CORE_POOL_CONTRACT_ID=.*/, `CORE_POOL_CONTRACT_ID=${corePool}`);
-    serverEnv = serverEnv.replace(/ORACLE_AGGREGATOR_CONTRACT_ID=.*/, `ORACLE_AGGREGATOR_CONTRACT_ID=${oracle}`);
-    serverEnv = serverEnv.replace(/BACKSTOP_CONTRACT_ID=.*/, `BACKSTOP_CONTRACT_ID=${backstop}`);
-    serverEnv = serverEnv.replace(/LIQUIDATION_ENGINE_CONTRACT_ID=.*/, `LIQUIDATION_ENGINE_CONTRACT_ID=${liquidationEngine}`);
-    serverEnv = serverEnv.replace(/GOVERNANCE_CONTRACT_ID=.*/, `GOVERNANCE_CONTRACT_ID=${governance}`);
-    serverEnv = serverEnv.replace(/COMPLIANCE_CONTRACT_ID=.*/, `COMPLIANCE_CONTRACT_ID=${compliance}`);
+    // If server network is public/mainnet, keep public envs, but let's write testnet variants too
+    if (serverEnv.includes('TESTNET_CORE_POOL_CONTRACT_ID')) {
+      serverEnv = serverEnv.replace(/TESTNET_CORE_POOL_CONTRACT_ID=.*/, `TESTNET_CORE_POOL_CONTRACT_ID=${corePool}`);
+    } else {
+      serverEnv += `\nTESTNET_CORE_POOL_CONTRACT_ID=${corePool}\n`;
+    }
     fs.writeFileSync(serverEnvPath, serverEnv);
   }
 

@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Address, scValToNative } from '@stellar/stellar-sdk';
 import { simulateContractCall } from '../rpc';
 
+import { config } from '../config.js';
+
 export interface UserMarketPosition {
   marketId: string;
   supplied: bigint;
@@ -27,7 +29,7 @@ export function useUserPosition(userAddress: string | null) {
     }
     setLoading(true);
     try {
-      const corePoolId = process.env.NEXT_PUBLIC_CORE_POOL_CONTRACT_ID || 'CCTXZNKEDNDA3ZGL6TQV2TSGNJ6HLUQCWXGIA6NOFKT53VESNDIYJRQH';
+      const corePoolId = config.contracts.corePool;
       const userAddrVal = Address.fromString(userAddress).toScVal();
       const sim = await simulateContractCall(corePoolId, 'get_user_position', [userAddrVal], userAddress);
       

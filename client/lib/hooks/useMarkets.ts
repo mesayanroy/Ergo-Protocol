@@ -17,13 +17,15 @@ export interface MarketStats {
   marketType: string;
 }
 
+import { config } from '../config.js';
+
 export function useMarkets() {
   const [markets, setMarkets] = useState<MarketStats[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchMarkets = async () => {
     try {
-      const corePoolId = process.env.NEXT_PUBLIC_CORE_POOL_CONTRACT_ID || 'CCTXZNKEDNDA3ZGL6TQV2TSGNJ6HLUQCWXGIA6NOFKT53VESNDIYJRQH';
+      const corePoolId = config.contracts.corePool;
       const sim = await simulateContractCall(corePoolId, 'get_all_markets', []);
       if ((sim as any).result?.retval) {
         const native = scValToNative((sim as any).result.retval);

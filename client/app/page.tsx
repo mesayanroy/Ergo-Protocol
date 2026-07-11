@@ -260,7 +260,7 @@ export default function HomePage() {
                 href="/dashboard?network=mainnet" 
                 className="px-6 py-4 rounded-full text-xs font-bold tracking-wider text-brandDark bg-brandLime shadow-[0_0_20px_rgba(212,255,63,0.25)] transition-all duration-300 hover:scale-[1.03] hover:shadow-[0_0_30px_rgba(212,255,63,0.4)] text-center"
               >
-                Launch Mainnet App
+                Launch Mainnet
               </a>
               <a 
                 href="/docs" 

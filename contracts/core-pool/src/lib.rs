@@ -2,10 +2,10 @@
 
 use soroban_sdk::{contract, contractimpl, Address, Env, Symbol, Vec, IntoVal};
 
-pub mod credit_delegation;
+// pub mod credit_delegation;
 pub mod emode;
 pub mod errors;
-pub mod flash_loan;
+// pub mod flash_loan;
 pub mod health_factor;
 pub mod interest_rate;
 pub mod market;
@@ -127,29 +127,29 @@ impl CorePoolContract {
     }
 
     /// Executes a flash loan.
-    pub fn flash_loan(env: Env, user: Address, market_id: Symbol, amount: i128) -> Result<(), Error> {
-        flash_loan::flash_loan(&env, user, market_id, amount)
+    pub fn flash_loan(env: Env, _user: Address, _market_id: Symbol, _amount: i128) -> Result<(), Error> {
+        Err(Error::Unsupported)
     }
 
     /// Delegates credit.
     pub fn delegate_credit(
         env: Env,
-        delegator: Address,
-        delegatee: Address,
-        market_id: Symbol,
-        allowance: i128,
+        _delegator: Address,
+        _delegatee: Address,
+        _market_id: Symbol,
+        _allowance: i128,
     ) -> Result<(), Error> {
-        credit_delegation::delegate_credit(&env, delegator, delegatee, market_id, allowance)
+        Err(Error::Unsupported)
     }
 
     /// Returns delegated allowance limit.
     pub fn get_credit_allowance(
         env: Env,
-        market_id: Symbol,
-        delegator: Address,
-        delegatee: Address,
+        _market_id: Symbol,
+        _delegator: Address,
+        _delegatee: Address,
     ) -> Result<i128, Error> {
-        Ok(credit_delegation::get_credit_allowance(&env, market_id, delegator, delegatee))
+        Ok(0)
     }
 
     /// Returns the position state for a user in a market.

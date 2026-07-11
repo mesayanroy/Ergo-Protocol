@@ -2,20 +2,21 @@ import { useStellarWallet } from '../stellar-wallet';
 import { server, NETWORK_PASSPHRASE } from '../rpc';
 import { TransactionBuilder } from '@stellar/stellar-sdk';
 import { buildSupplyTx, buildBorrowTx, buildRepayTx, buildWithdrawTx, buildApproveTx } from '../transactions';
+import { config } from '../config';
 
 export function useTransactionBuilder(userAddress: string | null) {
   const { signTransaction } = useStellarWallet();
 
   const ASSETS: Record<string, string> = {
-    xlm_shared: process.env.NEXT_PUBLIC_XLM_SAC || 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC',
-    usdc_shared: process.env.NEXT_PUBLIC_USDC_CONTRACT_ID || 'CB4A545ENTCQZUV33M2QT6RKLQ5K5ZRP34BR7NSJJLSS76NHH273QVA5',
-    eurc_shared: process.env.NEXT_PUBLIC_EURC_CONTRACT_ID || 'CBGN37EGC2VTOTROLR72BGCXEBZF2JGVHPPPN36IFKLVXBQLY3SXST6E',
-    wbtc_satellite: process.env.NEXT_PUBLIC_WBTC_CONTRACT_ID || 'CDJHXKNMRY5UOX4JGAGEPBGR3DKYOBPXPDWXTLSRKPT2FN3SGPS762YE',
-    weth_satellite: process.env.NEXT_PUBLIC_WETH_CONTRACT_ID || 'CAUJL5GHJGD3XZTATZZJK5PTKVXUBQEZ2LQFQB7DQTGUN62BFCOR7KXK',
-    ergo_satellite: process.env.NEXT_PUBLIC_ERGO_TOKEN_CONTRACT_ID || 'CCR5A6TLOSX3JTEOHRSCKC3WWUOB4ZHOCEUXKI3NE6MU3XYDYSZVCX57',
-    xlm_satellite: process.env.NEXT_PUBLIC_XLM_SAC || 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC',
-    usdc_satellite: process.env.NEXT_PUBLIC_USDC_CONTRACT_ID || 'CB4A545ENTCQZUV33M2QT6RKLQ5K5ZRP34BR7NSJJLSS76NHH273QVA5',
-    eurc_satellite: process.env.NEXT_PUBLIC_EURC_CONTRACT_ID || 'CBGN37EGC2VTOTROLR72BGCXEBZF2JGVHPPPN36IFKLVXBQLY3SXST6E',
+    xlm_shared: (config.assets as any).XLM || '',
+    usdc_shared: (config.assets as any).USDC || '',
+    eurc_shared: (config.assets as any).EURC || '',
+    xlm_satellite: (config.assets as any).XLM || '',
+    usdc_satellite: (config.assets as any).USDC || '',
+    eurc_satellite: (config.assets as any).EURC || '',
+    ergo_satellite: (config.assets as any).ERGO || '',
+    wbtc_satellite: (config.assets as any).wBTC || '',
+    weth_satellite: (config.assets as any).wETH || '',
   };
 
   const getAssetForMarket = (marketId: string): string => {

@@ -1,5 +1,8 @@
 import { Contract, TransactionBuilder, Account, Address, BASE_FEE, xdr, nativeToScVal } from '@stellar/stellar-sdk';
 import { simulateContractCall, server, NETWORK_PASSPHRASE } from './rpc';
+import { config } from './config';
+
+
 
 export interface TransactionOverview {
   gasFee: string;
@@ -21,8 +24,7 @@ export async function buildApproveTx(
   amount: bigint,
   spenderAddress?: string
 ): Promise<string> {
-  const corePoolId = process.env.NEXT_PUBLIC_CORE_POOL_CONTRACT_ID || '';
-  const spender = spenderAddress || corePoolId;
+  const spender = spenderAddress || config.contracts.corePool;
   const account = await server.getAccount(userAddress);
 
   let latestLedger = 9999999;
@@ -59,11 +61,10 @@ export async function buildSupplyTx(
   marketId: string,
   amount: bigint
 ): Promise<string> {
-  const corePoolId = process.env.NEXT_PUBLIC_CORE_POOL_CONTRACT_ID || '';
   const account = await server.getAccount(userAddress);
 
   // 1. Build supply call
-  const coreContract = new Contract(corePoolId);
+  const coreContract = new Contract(config.contracts.corePool);
   const supplyOp = coreContract.call(
     'supply',
     Address.fromString(userAddress).toScVal(),
@@ -87,10 +88,9 @@ export async function buildBorrowTx(
   marketId: string,
   amount: bigint
 ): Promise<string> {
-  const corePoolId = process.env.NEXT_PUBLIC_CORE_POOL_CONTRACT_ID || '';
   const account = await server.getAccount(userAddress);
 
-  const coreContract = new Contract(corePoolId);
+  const coreContract = new Contract(config.contracts.corePool);
   const borrowOp = coreContract.call(
     'borrow',
     Address.fromString(userAddress).toScVal(),
@@ -114,10 +114,9 @@ export async function buildRepayTx(
   marketId: string,
   amount: bigint
 ): Promise<string> {
-  const corePoolId = process.env.NEXT_PUBLIC_CORE_POOL_CONTRACT_ID || '';
   const account = await server.getAccount(userAddress);
 
-  const coreContract = new Contract(corePoolId);
+  const coreContract = new Contract(config.contracts.corePool);
   const repayOp = coreContract.call(
     'repay',
     Address.fromString(userAddress).toScVal(),
@@ -141,10 +140,9 @@ export async function buildWithdrawTx(
   marketId: string,
   amount: bigint
 ): Promise<string> {
-  const corePoolId = process.env.NEXT_PUBLIC_CORE_POOL_CONTRACT_ID || '';
   const account = await server.getAccount(userAddress);
 
-  const coreContract = new Contract(corePoolId);
+  const coreContract = new Contract(config.contracts.corePool);
   const withdrawOp = coreContract.call(
     'withdraw',
     Address.fromString(userAddress).toScVal(),
@@ -168,7 +166,7 @@ export async function buildBackstopDepositTx(
   poolId: number,
   amount: bigint
 ): Promise<string> {
-  const backstopId = process.env.NEXT_PUBLIC_BACKSTOP_CONTRACT_ID || '';
+  const backstopId = config.contracts.backstop || '';
   const account = await server.getAccount(userAddress);
 
   // 1. Call deposit
@@ -196,7 +194,7 @@ export async function buildBackstopWithdrawTx(
   poolId: number,
   amount: bigint
 ): Promise<string> {
-  const backstopId = process.env.NEXT_PUBLIC_BACKSTOP_CONTRACT_ID || '';
+  const backstopId = config.contracts.backstop || '';
   const account = await server.getAccount(userAddress);
 
   const backstopContract = new Contract(backstopId);
