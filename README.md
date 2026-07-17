@@ -6,10 +6,6 @@ Ergo Protocol is a next-generation, non-custodial decentralized lending and borr
 
 ---
 
-## Active users with their detailed Feedback: 
-https://docs.google.com/spreadsheets/d/1vLztvp1yzuMoxyTsJxFebRteebIhMIdvP6aaxCJ9CrQ/edit?usp=drivesdk
----
-
 ## Socials:
 https://x.com/ergoprotocol
 <img width="604" height="864" alt="image" src="https://github.com/user-attachments/assets/d39ce4cd-3d39-490d-abaf-d32724af7693" />
@@ -29,6 +25,10 @@ Below are the official deployed contract addresses for Ergo Protocol on the **St
 | **Ergo Token (ERGO)** | `CDILV5HTHZGWQYRL6TJP3MUTSCRXXQSAUHBMASXPZVC2BS4I3QUE5IDQ` | `GCK5L4DAV6...3JHE` |
 | **Backstop Pool (Fallback)** | `CBHFJXAP7EZUGCK4NNVT57JMW3KHBHXYFEAPCIT7UBHIAZJ2S5O24LEY` | `GCK5L4DAV6...3JHE` |
 | **Governance (Fallback)** | `CBL5WKK2WQ4XGGN25DW3OP2LIGI5GUDLBXNQ76ZLFQLU3RRBBAPGQTLU` | `GCK5L4DAV6...3JHE` |
+
+---
+## Active users with their detailed Feedback: 
+https://docs.google.com/spreadsheets/d/1vLztvp1yzuMoxyTsJxFebRteebIhMIdvP6aaxCJ9CrQ/edit?usp=drivesdk
 
 ---
 
