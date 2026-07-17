@@ -6,6 +6,16 @@ Ergo Protocol is a next-generation, non-custodial decentralized lending and borr
 
 ---
 
+## Active users with their detailed Feedback: 
+https://docs.google.com/spreadsheets/d/1vLztvp1yzuMoxyTsJxFebRteebIhMIdvP6aaxCJ9CrQ/edit?usp=drivesdk
+---
+
+## Socials:
+https://x.com/ergoprotocol
+<img width="604" height="864" alt="image" src="https://github.com/user-attachments/assets/d39ce4cd-3d39-490d-abaf-d32724af7693" />
+
+
+---
 ## 🏛️ Mainnet Contract Registry
 
 Below are the official deployed contract addresses for Ergo Protocol on the **Stellar Mainnet** (`public`):
