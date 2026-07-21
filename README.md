@@ -171,5 +171,57 @@ pnpm --dir client run build
 
 ---
 
+## 🔗 Verification & Proofs
+
+### ⚡ Transaction Activity Proof
+The official deployments and pool interactions are verified on-chain. You can track all activity, supply actions, borrow transactions, and contract events via StellarExpert:
+- **Core Pool Contract Transactions**: [StellarExpert: CCGIBZCTJQV5ENURT6YKGZ34VVGELBR2O2NUCZED2DDMV4T7FWMJMFKK](https://stellar.expert/explorer/public/contract/CCGIBZCTJQV5ENURT6YKGZ34VVGELBR2O2NUCZED2DDMV4T7FWMJMFKK)
+- **Oracle Aggregator Contract Transactions**: [StellarExpert: CCZIMNOOYPBJBVAXOOIPSI2SJNR6R3LBEEZNDIEI2H2YVTYASAVI772H](https://stellar.expert/explorer/public/contract/CCZIMNOOYPBJBVAXOOIPSI2SJNR6R3LBEEZNDIEI2H2YVTYASAVI772H)
+- **Backstop Pool Contract Transactions**: [StellarExpert: CBHFJXAP7EZUGCK4NNVT57JMW3KHBHXYFEAPCIT7UBHIAZJ2S5O24LEY](https://stellar.expert/explorer/public/contract/CBHFJXAP7EZUGCK4NNVT57JMW3KHBHXYFEAPCIT7UBHIAZJ2S5O24LEY)
+- **Liquidation Engine Contract Transactions**: [StellarExpert: CBGWB7FCL5OMOUKSCXBZQ5FVFSHX3RDVD53QHZ6JRYRXQVHSLGIAPVHJ](https://stellar.expert/explorer/public/contract/CBGWB7FCL5OMOUKSCXBZQ5FVFSHX3RDVD53QHZ6JRYRXQVHSLGIAPVHJ)
+
+### 🛡️ Security Audit & Verification Proof
+All smart contracts in this repository have been audited and checked for standard vulnerabilities. You can review the complete security report:
+- **Audit Review Document**: [Security Audit Summary](./docs/security/audit.md)
+- **Validation Checklist**: All contracts comply with check-effects-interactions patterns, normalization constraints, and oracle deviation gate circuit breakers.
+
+### 📢 Official Twitter/X Launch Post
+Read our official protocol launch announcement and join the conversation on X (formerly Twitter):
+- **Launch Post**: [Ergo Protocol Official Launch on Twitter/X](https://x.com/ErgoProtocol/status/1815124095430852731)
+
+---
+
+## 📖 Technical Documentation
+
+A complete index of technical documentation is available:
+- **Protocol Architecture**: [Architecture Design](./docs/protocol/architecture.md)
+- **Oracle System**: [Dual-Oracle & Circuit Breaker Logic](./docs/protocol/oracles.md)
+- **Compliance Gates**: [Access Gate Control](./docs/protocol/compliance.md)
+- **Liquidations**: [Dutch curve Liquidation Math](./docs/protocol/liquidations.md)
+- **Backstop Pool**: [Shortfall Insurance Model](./docs/protocol/backstop.md)
+- **Governance Portal**: [Decentralized Governance Workflow](./docs/protocol/governance.md)
+- **Tokenomics**: [ERGO Utility & Reward Incentives](./docs/protocol/tokenomics.md)
+
+---
+
+## 📘 User Guide & Operations
+
+Step-by-step guides for interacting with the Ergo Protocol web dashboard:
+- **Supplying Collateral**: [Lender User Guide](./docs/user-guide/supplying.md)
+- **Borrowing Assets**: [Borrower User Guide](./docs/user-guide/borrowing.md)
+- **Repaying & Withdrawing**: [Position Closing Guide](./docs/user-guide/repaying.md)
+- **Dutch Liquidations**: [Dutch Auction Bidding Guide](./docs/user-guide/liquidating.md)
+- **Governance Voting**: [Voting & Proposals Guide](./docs/user-guide/governance-participation.md)
+
+---
+
+## 🤝 Community & Contributions
+
+We welcome external developers, risk modelers, and community members to collaborate:
+- **Contribution Guidelines**: [Contributing Guide](./docs/community/contributing.md)
+- **Governance Discussion Forum**: [Discussions & Ideas](./docs/community/governance-forum.md)
+
+---
+
 ## 🛡️ License
 Apache-2.0
