@@ -187,7 +187,7 @@ All smart contracts in this repository have been audited and checked for standar
 
 ### 📢 Official Twitter/X Launch Post
 Read our official protocol launch announcement and join the conversation on X (formerly Twitter):
-- **Launch Post**: [Ergo Protocol Official Launch on Twitter/X](https://x.com/ErgoProtocol/status/1815124095430852731)
+- **Launch Post**: [Ergo Protocol Official SCF acceptance mail on Twitter/X](https://x.com/ergoprotocol/status/2077150433546801251?s=20)
 
 ---
 
