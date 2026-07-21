@@ -5,7 +5,6 @@
 Ergo Protocol is a next-generation, non-custodial decentralized lending and borrowing platform built natively on the **Stellar/Soroban** smart contract network. It leverages a high-performance **Shared Core** pool coupled with isolated **Satellite Pools** to provide maximum capital efficiency, real-time risk isolation, and institutional-grade compliance gates.
 
 ## Demo -
-
 https://youtu.be/7Yuw5vHb_Wk
 ---
 
