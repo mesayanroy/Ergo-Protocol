@@ -7,11 +7,47 @@ Ergo Protocol is a next-generation, non-custodial decentralized lending and borr
 ## Demo -
 https://youtu.be/7Yuw5vHb_Wk
 ---
+## Traction - 
+Ergo Drive Link -
+https://drive.google.com/drive/folders/1MqCqFb6jY8MGMhgUtpRQUWHJmJpv0D84
+
+Total Mainnet Transactions / Operations: 153
+Unique Active Mainnet Wallets / Users: 8
+Division Breakdown:
+
+Core Pool: 12 transactions (create_market, set_dependency, market setup)
+Governance & Compliance: 9 transactions (set_issuer, protocol configuration)
+Oracle Aggregator: 5 transactions (register_feed, price updates)
+ERGO Protocol Token: 3 transactions (mint, token initialization)
+Backstop Pool: 1 transaction (initialize)
+Liquidation Engine: 1 transaction (initialize)
+Protocol Infrastructure & Soroban Interactivity: 122 transactions
+(Refer to attached CSV file: mainnet_transactions.csv)
+
+Total Testnet Transactions / Operations: 318
+Unique Active Testnet Wallets / Users: 7
+Division Breakdown:
+
+Core Pool: 17 transactions
+Compliance: 13 transactions
+ERGO Protocol Token: 5 transactions
+Stellar Asset Contracts (XLM, USDC, EURC, WBTC, WETH): 25 transactions
+Backstop Pool: 1 transaction
+Liquidation Engine: 1 transaction
+Oracle Aggregator: 1 transaction
+Governance: 1 transaction
+Testnet Infrastructure & Multi-Contract Testing: 254 transactions
+(Refer to attached CSV file: testnet_transactions.csv)
+
+Mainnet Contract address
+Primary Core Pool Contract Address: CCGIBZCTJQV5ENURT6YKGZ34VVGELBR2O2NUCZED2DDMV4T7FWMJMFKK  Full Protocol Suite (Mainnet):  Core Pool: CCGIBZCTJQV5ENURT6YKGZ34VVGELBR2O2NUCZED2DDMV4T7FWMJMFKK Backstop Pool: CBHFJXAP7EZUGCK4NNVT57JMW3KHBHXYFEAPCIT7UBHIAZJ2S5O24LEY Liquidation Engine: CBGWB7FCL5OMOUKSCXBZQ5FVFSHX3RDVD53QHZ6JRYRXQVHSLGIAPVHJ Oracle Aggregator: CCZIMNOOYPBJBVAXOOIPSI2SJNR6R3LBEEZNDIEI2H2YVTYASAVI772H Governance & Compliance: CBL5WKK2WQ4XGGN25DW3OP2LIGI5GUDLBXNQ76ZLFQLU3RRBBAPGQTLU ERGO Protocol Token: CDILV5HTHZGWQYRL6TJP3MUTSCRXXQSAUHBMASXPZVC2BS4I3QUE5IDQ
+
+testnet contract address
+Primary Core Pool Contract Address: CBHSTINK374ABHBJ7MK347ICJ6JKVSTD72Y5BGZN5V6BJGLNKYYFEI3O  Full Protocol Suite (Testnet):  Core Pool: CBHSTINK374ABHBJ7MK347ICJ6JKVSTD72Y5BGZN5V6BJGLNKYYFEI3O Backstop Pool: CC7Z66HSB2TYHRZF66HIAZ3CWYZTJ43SVPBORKMCBND7XXD4M2N4F6BF Liquidation Engine: CBEQWOF57VRRY6UCYZ4TIBUZVC6Q3KPAUR452N2SKA2W6AT5WNPDVAEB Oracle Aggregator: CABJ7EVKBTHFYKIC2CK362SVZJRMU7HSUGIBPFMBNUDMBBOGUEBZ3ABK Governance: CC6B6DORNT7KKJXE7KXBBH5YEQQV2EAYGJX2CVJMQGXNRUDAPGVEKEJ5 Compliance: CAFU624RJD3QLLGL4J7TX5C43JBGLHTPRWB5VLWU3ED4DHIR6PC6R5US ERGO Protocol Token: CDYJFYG7X4DPMAOQUUTYEK5KAOSTI7LEG4VDVSZ6KZQFM66LFHSLVBLZ
 
 ## Socials:
 https://x.com/ergoprotocol
 <img width="604" height="864" alt="image" src="https://github.com/user-attachments/assets/d39ce4cd-3d39-490d-abaf-d32724af7693" />
-
 
 ---
 ## 🏛️ Mainnet Contract Registry
