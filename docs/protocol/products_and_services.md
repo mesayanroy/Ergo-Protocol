@@ -30,21 +30,28 @@
 
 ---
 
-### **5. Backstop Insurance Shortfall Reserve (`backstop`)**
+### **5. Native $ERGO Utility & Governance Token (`ergo-token`)**
+- **Feature Description:** Native protocol token powering vote-escrowed governance (veERGO), liquidity mining rewards, Dutch auction fee discounts, and post-launch Community ICO token distribution.
+- **How Stellar is Used:** Deployed as a Soroban WASM token contract on Stellar Mainnet (`CDILV5HTHZGWQYRL6TJP3MUTSCRXXQSAUHBMASXPZVC2BS4I3QUE5IDQ`) and Testnet (`CDYJFYG7X4DPMAOQUUTYEK5KAOSTI7LEG4VDVSZ6KZQFM66LFHSLVBLZ`) with classic issuer (`GB7NRH4HKV3WAVUM7ZYNMP7BSWHYIOI4KQTCZKFB6CJWK7WXL7GHNQLB`).
+- **Impact on Project:** Decentralizes protocol governance, aligns long-term liquidity providers, and establishes a clear path for protocol self-sustainability through a future community ICO.
+
+---
+
+### **6. Backstop Insurance Shortfall Reserve (`backstop`)**
 - **Feature Description:** First-loss capital insurance layer that absorbs bad debt shortfalls during extreme black-swan market volatility.
 - **How Stellar is Used:** Soroban contract (`CBHFJX...`) managing pooled LP stake reserves, auto-settling deficits when liquidation auctions complete with leftover debt.
 - **Impact on Project:** Guarantees 100% solvency for lenders even during severe market downturns, building user trust and attracting institutional liquidity.
 
 ---
 
-### **6. Compliance Gate & Permissioned Satellite Pools (`compliance`)**
+### **7. Compliance Gate & Permissioned Satellite Pools (`compliance`)**
 - **Feature Description:** Optional access control layer providing KYC/AML allowlist verification for institutional satellite liquidity pools.
 - **How Stellar is Used:** Soroban contract (`CBL5WK...`) validating user addresses against on-chain permission vectors prior to approving `deposit` or `borrow` calls.
 - **Impact on Project:** Opens Stellar DeFi to compliant institutions, fintech anchors, and enterprise capital that require regulatory compliance safeguards.
 
 ---
 
-### **7. Non-Custodial Web Dashboard & Wallet Kit (`client/`)**
-- **Feature Description:** Responsive Next.js 14 web client providing real-time Health Factor simulation, position management, and one-click supply/borrow actions.
+### **8. Non-Custodial Web Dashboard & Wallet Kit (`client/`)**
+- **Feature Description:** Responsive Next.js 14 web client providing real-time Health Factor simulation, $ERGO staking management, and one-click supply/borrow actions.
 - **How Stellar is Used:** Integrates Stellar Wallet Kit (Freighter, Albedo, Lobstr) and `@stellar/stellar-sdk` communicating directly with `https://mainnet.sorobanrpc.com`.
 - **Impact on Project:** Delivers a seamless, mobile-friendly UX for retail and institutional users, driving verified mainnet traction (**153 mainnet transactions across 8 active wallets**).
