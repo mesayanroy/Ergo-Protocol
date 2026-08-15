@@ -1,4 +1,4 @@
-import { rpc, Contract, Address, nativeToScVal, scValToNative } from '@stellar/stellar-sdk';
+import { rpc, Contract, Account, Networks, TransactionBuilder, nativeToScVal, scValToNative } from '@stellar/stellar-sdk';
 import { db } from '../db/index.js';
 
 const rpcUrl = process.env.SOROBAN_RPC_URL || 'https://mainnet.sorobanrpc.com';
@@ -6,8 +6,71 @@ const server = new rpc.Server(rpcUrl);
 
 const indexerName = 'ergo_indexer';
 
+// Soroban RPC getEvents limits: at most 5 filters per request, 5 contract ids per filter.
+const MAX_CONTRACT_IDS_PER_FILTER = 5;
+const MAX_FILTERS_PER_REQUEST = 5;
+
+// Ledger window and pagination sizing per polling cycle
+const LEDGER_SPAN = 50;
+const EVENT_PAGE_SIZE = 100;
+const MAX_PAGES_PER_BATCH = 10;
+
+// How far back to start when there is no checkpoint yet (RPC only retains ~24h of events)
+const DEFAULT_LOOKBACK_LEDGERS = 100;
+
+// Dummy source account for read-only simulations
+const dummyAccount = new Account('GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN', '0');
+
+const networkPassphrase =
+  process.env.STELLAR_NETWORK_PASSPHRASE ||
+  (process.env.NEXT_PUBLIC_NETWORK === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET);
+
 // Helper sleep function
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+// JSON-RPC codes that signal a malformed request — retrying them never succeeds.
+const NON_RETRYABLE_RPC_CODES = new Set([-32600, -32601, -32602, -32700]);
+const NON_RETRYABLE_MESSAGE = /maximum|invalid|must be|malformed|unsupported|not supported|too many|out of range/i;
+
+// RPC rejects a startLedger that has fallen outside its retention window.
+const OUT_OF_RETENTION_MESSAGE = /oldest ledger|startledger|start ledger|ledger.*(not found|out of range)/i;
+
+function errorMessage(err: any): string {
+  return String(err?.message || err?.error?.message || err || '');
+}
+
+function isRetryable(err: any): boolean {
+  const code = err?.code ?? err?.error?.code;
+  if (typeof code === 'number' && NON_RETRYABLE_RPC_CODES.has(code)) return false;
+  return !NON_RETRYABLE_MESSAGE.test(errorMessage(err));
+}
+
+function isOutOfRetention(err: any): boolean {
+  return OUT_OF_RETENTION_MESSAGE.test(errorMessage(err));
+}
+
+/**
+ * Groups contract ids into getEvents filters, respecting the RPC's
+ * "5 contract ids per filter / 5 filters per request" limits.
+ */
+function buildEventFilters(contractIds: string[]): any[] {
+  const capacity = MAX_CONTRACT_IDS_PER_FILTER * MAX_FILTERS_PER_REQUEST;
+  const ids = contractIds.slice(0, capacity);
+  if (contractIds.length > capacity) {
+    console.warn(
+      `[Indexer] ${contractIds.length} contracts configured but RPC allows at most ${capacity}; ignoring the rest.`
+    );
+  }
+
+  const filters: any[] = [];
+  for (let i = 0; i < ids.length; i += MAX_CONTRACT_IDS_PER_FILTER) {
+    filters.push({
+      type: 'contract',
+      contractIds: ids.slice(i, i + MAX_CONTRACT_IDS_PER_FILTER)
+    });
+  }
+  return filters;
+}
 
 export class ErgoIndexerService {
   private active: boolean = false;
@@ -30,7 +93,7 @@ export class ErgoIndexerService {
       try {
         await this.indexNextBatch();
       } catch (err: any) {
-        console.error('❌ Indexer loop execution error:', err.message || err);
+        console.error('❌ Indexer loop execution error:', errorMessage(err));
       }
       await sleep(this.intervalMs);
     }
@@ -52,56 +115,114 @@ export class ErgoIndexerService {
       return;
     }
 
-    // Determine starting ledger sequence
-    let startLedger = await db.getCheckpoint(indexerName);
     const latestLedgerRes = await this.queryWithRetry(() => server.getLatestLedger());
     const latestLedger = latestLedgerRes.sequence;
 
+    // Determine starting ledger sequence
+    let startLedger = await db.getCheckpoint(indexerName);
     if (!startLedger) {
-      startLedger = latestLedger - 100; // Default fallback to 100 blocks back
+      startLedger = latestLedger - DEFAULT_LOOKBACK_LEDGERS;
     }
 
     if (startLedger >= latestLedger) {
       return;
     }
 
-    const endLedger = Math.min(startLedger + 50, latestLedger);
+    const endLedger = Math.min(startLedger + LEDGER_SPAN, latestLedger);
     console.log(`[Indexer] Fetching events from ledger ${startLedger} to ${endLedger}...`);
 
-    // Fetch and process events
-    const filterIds = Object.values(contracts).filter(Boolean) as string[];
-    const eventsResponse = await this.queryWithRetry(() =>
-      server.getEvents({
-        startLedger,
-        filters: filterIds.map(cid => ({
-          type: 'contract',
-          contractIds: [cid]
-        })),
-        limit: 100
-      })
-    );
+    const filters = buildEventFilters(Object.values(contracts).filter(Boolean) as string[]);
+    if (filters.length === 0) {
+      return;
+    }
 
-    for (const evt of eventsResponse.events) {
+    let batch: { events: any[]; complete: boolean };
+    try {
+      batch = await this.fetchEvents(startLedger, endLedger, filters);
+    } catch (err: any) {
+      if (isOutOfRetention(err)) {
+        // Checkpoint fell out of the RPC's event retention window — skip ahead to what is available.
+        const resumeLedger = latestLedger - DEFAULT_LOOKBACK_LEDGERS;
+        console.warn(
+          `[Indexer] Ledger ${startLedger} is outside the RPC retention window; resuming at ${resumeLedger}.`
+        );
+        await db.upsertCheckpoint(indexerName, resumeLedger);
+        return;
+      }
+      throw err;
+    }
+
+    let lastLedgerSeen = startLedger;
+    for (const evt of batch.events) {
       try {
         await this.processEvent(evt);
+        lastLedgerSeen = Math.max(lastLedgerSeen, Number(evt.ledger));
       } catch (err: any) {
-        console.error(`Failed to process event ${evt.id}:`, err.message || err);
+        console.error(`Failed to process event ${evt.id}:`, errorMessage(err));
       }
     }
 
     // Sync live contract state for active markets to PostgreSQL
     await this.syncLiveState(contracts);
 
-    // Save checkpoint progress
-    await db.upsertCheckpoint(indexerName, endLedger + 1);
+    // Save checkpoint progress. If the window was truncated, resume from the last ledger
+    // actually seen so the remainder is picked up on the next cycle.
+    await db.upsertCheckpoint(indexerName, batch.complete ? endLedger + 1 : lastLedgerSeen);
+  }
+
+  /**
+   * Pages through getEvents for the given ledger window. A single request is capped
+   * at EVENT_PAGE_SIZE events, so a busy window needs the cursor to be followed.
+   * `complete` is false when the window held more events than the page budget allows.
+   */
+  private async fetchEvents(
+    startLedger: number,
+    endLedger: number,
+    filters: any[]
+  ): Promise<{ events: any[]; complete: boolean }> {
+    const collected: any[] = [];
+    let cursor: string | undefined;
+    let complete = false;
+
+    for (let page = 0; page < MAX_PAGES_PER_BATCH; page++) {
+      // The RPC rejects requests that mix a cursor with a ledger range: the cursor
+      // already encodes the position, so later pages are bounded client-side instead.
+      const request: any = cursor
+        ? { filters, limit: EVENT_PAGE_SIZE, cursor }
+        : { filters, startLedger, endLedger, limit: EVENT_PAGE_SIZE };
+
+      const response: any = await this.queryWithRetry(() => server.getEvents(request));
+      const pageEvents: any[] = response.events || [];
+
+      const inWindow = pageEvents.filter(e => Number(e.ledger) <= endLedger);
+      collected.push(...inWindow);
+
+      // Stop once the page is short (window exhausted) or ran past the window
+      if (pageEvents.length < EVENT_PAGE_SIZE || inWindow.length < pageEvents.length) {
+        complete = true;
+        break;
+      }
+
+      cursor = response.cursor || pageEvents[pageEvents.length - 1]?.id;
+      if (!cursor) {
+        complete = true;
+        break;
+      }
+
+      if (page === MAX_PAGES_PER_BATCH - 1) {
+        console.warn(`[Indexer] Page limit reached for ledgers ${startLedger}-${endLedger}; remaining events deferred.`);
+      }
+    }
+
+    return { events: collected, complete };
   }
 
   private async processEvent(evt: any) {
-    const topics: string[] = evt.topic.map((t: any) => {
+    const topics: string[] = (evt.topic || []).map((t: any) => {
       try {
-        return scValToNative(t).toString();
+        return String(scValToNative(t));
       } catch {
-        return t;
+        return String(t);
       }
     });
 
@@ -113,13 +234,17 @@ export class ErgoIndexerService {
       dataNative = evt.value;
     }
 
-    // LogParsed event to events table
+    // LogParsed event to events table.
+    // SDK v16 hands back a Contract instance here, not a strkey string.
+    const contractId = typeof evt.contractId === 'string' ? evt.contractId : evt.contractId?.toString() || '';
+
     await db.logEvent({
-      contract_id: evt.contractId,
+      event_id: evt.id,
+      contract_id: contractId,
       event_name: eventName,
       topics,
-      data: JSON.stringify(dataNative),
-      ledger_seq: evt.ledger,
+      data: JSON.stringify(dataNative, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)),
+      ledger_seq: Number(evt.ledger),
       tx_hash: evt.txHash
     });
 
@@ -127,17 +252,17 @@ export class ErgoIndexerService {
     if (eventName === 'Supply' || eventName === 'Withdraw' || eventName === 'Borrow' || eventName === 'Repay') {
       const user = dataNative.user || dataNative.from || dataNative.to;
       const marketId = dataNative.market_id || dataNative.market;
-      const amount = Number(dataNative.amount || 0) / 1e7;
+      const amountStroops = this.toStroops(dataNative.amount);
 
       if (user) {
         await db.upsertUser(user);
-        
+
         // Log transaction history
         await db.query(
           `INSERT INTO transactions (user_address, tx_hash, action, market_id, amount, status, ledger, created_at)
            VALUES ($1, $2, $3, $4, $5, 'success', $6, NOW())
            ON CONFLICT (tx_hash) DO NOTHING`,
-          [user, evt.txHash, eventName.toLowerCase(), marketId, BigInt(Math.round(amount * 1e7)), evt.ledger]
+          [user, evt.txHash, eventName.toLowerCase(), marketId, amountStroops, Number(evt.ledger)]
         );
       }
     } else if (eventName === 'AuctionCreated') {
@@ -149,7 +274,7 @@ export class ErgoIndexerService {
         collateral_amount: Number(dataNative.collateral_amount || 0) / 1e7,
         debt_asset: dataNative.debt_asset || '',
         debt_amount: Number(dataNative.debt_amount || 0) / 1e7,
-        start_ledger: evt.ledger,
+        start_ledger: Number(evt.ledger),
         active: true
       });
     } else if (eventName === 'AuctionFilled') {
@@ -158,20 +283,32 @@ export class ErgoIndexerService {
     }
   }
 
+  /** i128 amounts arrive as bigint; keep full precision instead of round-tripping through Number. */
+  private toStroops(amount: any): bigint {
+    try {
+      if (typeof amount === 'bigint') return amount;
+      if (typeof amount === 'string') return BigInt(amount);
+      if (typeof amount === 'number') return BigInt(Math.round(amount));
+      return 0n;
+    } catch {
+      return 0n;
+    }
+  }
+
   private async syncLiveState(contracts: any) {
     const marketSymbols = ['xlm_shared', 'usdc_shared', 'eurc_shared', 'ergo_satellite'];
-    
+
     for (const mId of marketSymbols) {
       try {
         // Query live core_pool reserves/state if deployed
         const poolContract = new Contract(contracts.corePool);
-        
-        // Simulate reading market total balance or active supplies
-        const statsSim = await server.simulateTransaction({
-          fee: '100',
-          networkPassphrase: process.env.STELLAR_NETWORK_PASSPHRASE || 'Public Global Stellar Network ; October 2015',
-          addOperation: poolContract.call('get_market_state', nativeToScVal(mId, { type: 'symbol' }))
-        } as any);
+        const op = poolContract.call('get_market_state', nativeToScVal(mId, { type: 'symbol' }));
+        const tx = new TransactionBuilder(dummyAccount, { fee: '100', networkPassphrase })
+          .addOperation(op)
+          .setTimeout(0)
+          .build();
+
+        const statsSim = await server.simulateTransaction(tx);
 
         if (!rpc.Api.isSimulationError(statsSim) && statsSim.result) {
           const state = scValToNative(statsSim.result.retval);
@@ -205,13 +342,13 @@ export class ErgoIndexerService {
     }
   }
 
-  // Exponential backoff query helper
+  // Exponential backoff query helper — only transient failures are retried.
   private async queryWithRetry<T>(fn: () => Promise<T>, retries = 5, delay = 1000): Promise<T> {
     try {
       return await fn();
     } catch (err) {
-      if (retries <= 0) throw err;
-      console.warn(`[Indexer Retry] query failed. Retrying in ${delay}ms...`);
+      if (retries <= 0 || !isRetryable(err)) throw err;
+      console.warn(`[Indexer Retry] query failed (${errorMessage(err)}). Retrying in ${delay}ms...`);
       await sleep(delay);
       return this.queryWithRetry(fn, retries - 1, delay * 2);
     }

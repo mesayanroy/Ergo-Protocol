@@ -121,6 +121,7 @@ CREATE TABLE IF NOT EXISTS checkpoints (
 -- Contract Events Log: stores parsed events from Soroban RPC
 CREATE TABLE IF NOT EXISTS events (
   id SERIAL PRIMARY KEY,
+  event_id VARCHAR(96),           -- RPC paging token; unique per emitted event
   contract_id VARCHAR(56) NOT NULL,
   event_name VARCHAR(64) NOT NULL,
   topics TEXT[],
@@ -129,6 +130,11 @@ CREATE TABLE IF NOT EXISTS events (
   tx_hash VARCHAR(64) NOT NULL,
   created_at TIMESTAMP DEFAULT NOW()
 );
+
+-- For databases created before event_id existed (safe to re-run):
+ALTER TABLE events ADD COLUMN IF NOT EXISTS event_id VARCHAR(96);
+-- Lets the indexer re-scan a ledger range after a restart without duplicating rows
+CREATE UNIQUE INDEX IF NOT EXISTS idx_events_event_id ON events(event_id);
 
 -- Markets Metrics: aggregates total supplies/borrows and pool configurations
 CREATE TABLE IF NOT EXISTS markets (

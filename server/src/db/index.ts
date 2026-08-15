@@ -103,6 +103,9 @@ memoryStore.proposals.set(3, {
   executed: true,
 });
 
+// Cap for the in-memory event log (see logEvent)
+const MAX_MEMORY_EVENTS = 5000;
+
 let pool: any = null;
 let useDb = false;
 
@@ -113,13 +116,32 @@ try {
       connectionString: process.env.DATABASE_URL,
       ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : undefined,
     });
+    // A dropped idle connection emits 'error' on the pool; without a listener it crashes the process.
+    pool.on("error", (err: any) => {
+      console.error("PostgreSQL pool error (idle client):", err.message || err);
+    });
     // Verify database connectivity
     await pool.query("SELECT 1");
     useDb = true;
     console.log("✓ PostgreSQL Database connected and verified successfully.");
+
+    // Idempotent migration: unique event id lets the indexer re-scan a ledger range without duplicating rows.
+    try {
+      await pool.query("ALTER TABLE events ADD COLUMN IF NOT EXISTS event_id VARCHAR(96)");
+      await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS idx_events_event_id ON events(event_id)");
+    } catch (err: any) {
+      console.warn("Skipped events.event_id migration:", err.message || err);
+    }
   }
 } catch (e: any) {
   console.warn("⚠️ Database connection failed, falling back to memory store:", e.message || e);
+  if (pool) {
+    try {
+      await pool.end();
+    } catch {
+      /* pool never connected */
+    }
+  }
   pool = null;
   useDb = false;
 }
@@ -385,14 +407,19 @@ export const db = {
     return null;
   },
 
-  async logEvent(event: { contract_id: string, event_name: string, topics: string[], data: string, ledger_seq: number, tx_hash: string }) {
+  async logEvent(event: { event_id?: string, contract_id: string, event_name: string, topics: string[], data: string, ledger_seq: number, tx_hash: string }) {
     memoryStore.events.push({ ...event, created_at: new Date() });
+    // Cap the in-memory log so a long-running indexer cannot exhaust the heap
+    if (memoryStore.events.length > MAX_MEMORY_EVENTS) {
+      memoryStore.events.splice(0, memoryStore.events.length - MAX_MEMORY_EVENTS);
+    }
     if (useDb && pool) {
       try {
         await pool.query(
-          `INSERT INTO events (contract_id, event_name, topics, data, ledger_seq, tx_hash, created_at) 
-           VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
-          [event.contract_id, event.event_name, event.topics, event.data, event.ledger_seq, event.tx_hash]
+          `INSERT INTO events (event_id, contract_id, event_name, topics, data, ledger_seq, tx_hash, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+           ON CONFLICT DO NOTHING`,
+          [event.event_id || null, event.contract_id, event.event_name, event.topics, event.data, event.ledger_seq, event.tx_hash]
         );
       } catch (err: any) {
         console.error("Failed to log event:", err.message || err);
