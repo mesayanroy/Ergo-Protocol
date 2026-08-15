@@ -23,6 +23,31 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date() });
 });
 
+// Service index. This is an API-only server — there is no UI here, so opening the
+// root in a browser lists what is available instead of a bare 404.
+app.get('/', (req, res) => {
+  res.json({
+    service: 'Ergo Protocol API',
+    status: 'ok',
+    network: process.env.NEXT_PUBLIC_NETWORK || 'testnet',
+    endpoints: [
+      '/health',
+      '/api/markets',
+      '/api/positions',
+      '/api/proposals',
+      '/api/oracle',
+      '/api/auctions',
+      '/api/backstop',
+      '/api/protocol',
+      '/api/health-factor',
+      '/api/compliance',
+      '/api/auth',
+      '/api/faucet',
+      '/api/admin'
+    ]
+  });
+});
+
 app.listen(port, () => {
   console.log(`Ergo Protocol API Server running on port ${port}`);
   ergoIndexer.start().catch(err => {
